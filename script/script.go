@@ -32,10 +32,11 @@ func Generate(tc *testcase.TestCase, rewrittenSQL string) string {
 	sb.WriteString("\n\n")
 
 	// 3. Actual TEMP TABLE from rewritten query
-	sb.WriteString(fmt.Sprintf("CREATE TEMP TABLE __bqtest_actual AS\n%s;\n\n", rewrittenSQL))
+	fmt.Fprintf(&sb, "CREATE TEMP TABLE __bqtest_actual AS\n%s;\n\n", rewrittenSQL)
 
-	// 4. Diff queries
-	sb.WriteString(generateDiffSQL())
+	// 4. Diff queries using expected column names for consistent ordering
+	columns := expectedColumns(tc.Expected)
+	sb.WriteString(generateDiffSQL(columns))
 
 	return sb.String()
 }
@@ -49,7 +50,6 @@ func generateFixtureSQL(tempName string, f testcase.Fixture) string {
 		return fmt.Sprintf("CREATE TEMP TABLE %s AS SELECT * FROM UNNEST([]);", tempName)
 	}
 
-	// Build UNION ALL of SELECT statements for each row
 	var selects []string
 	for _, row := range f.Rows {
 		cols := sortedColumns(row)
@@ -77,25 +77,55 @@ func generateExpectedSQL(expected testcase.Expected) string {
 	return fmt.Sprintf("CREATE TEMP TABLE __bqtest_expected AS\n%s;", strings.Join(selects, "\nUNION ALL\n"))
 }
 
-func generateDiffSQL() string {
-	return `-- Rows in actual but not in expected
-CREATE TEMP TABLE __bqtest_extra AS
-SELECT * FROM __bqtest_actual
-EXCEPT DISTINCT
-SELECT * FROM __bqtest_expected;
+// expectedColumns extracts sorted column names from the expected definition.
+func expectedColumns(expected testcase.Expected) []string {
+	if len(expected.Rows) == 0 {
+		return nil
+	}
+	keys := make(map[string]bool)
+	for _, row := range expected.Rows {
+		for k := range row {
+			keys[k] = true
+		}
+	}
+	cols := make([]string, 0, len(keys))
+	for k := range keys {
+		cols = append(cols, k)
+	}
+	sort.Strings(cols)
+	return cols
+}
 
--- Rows in expected but not in actual
-CREATE TEMP TABLE __bqtest_missing AS
-SELECT * FROM __bqtest_expected
-EXCEPT DISTINCT
-SELECT * FROM __bqtest_actual;
-
--- Result summary
-SELECT
-  (SELECT COUNT(*) FROM __bqtest_extra) AS extra_count,
-  (SELECT COUNT(*) FROM __bqtest_missing) AS missing_count,
+func generateDiffSQL(columns []string) string {
+	if len(columns) == 0 {
+		// Fallback: use * (less safe but works for SQL-defined expected)
+		return `SELECT
+  (SELECT COUNT(*) FROM (
+    SELECT * FROM __bqtest_actual EXCEPT DISTINCT SELECT * FROM __bqtest_expected
+  )) AS extra_count,
+  (SELECT COUNT(*) FROM (
+    SELECT * FROM __bqtest_expected EXCEPT DISTINCT SELECT * FROM __bqtest_actual
+  )) AS missing_count,
   (SELECT COUNT(*) FROM __bqtest_actual) AS actual_count,
   (SELECT COUNT(*) FROM __bqtest_expected) AS expected_count;`
+	}
+
+	// Use explicit column list to ensure consistent ordering between actual and expected
+	colList := strings.Join(columns, ", ")
+	return fmt.Sprintf(`-- Result summary (using explicit column list for order-independent comparison)
+SELECT
+  (SELECT COUNT(*) FROM (
+    SELECT %s FROM __bqtest_actual
+    EXCEPT DISTINCT
+    SELECT %s FROM __bqtest_expected
+  )) AS extra_count,
+  (SELECT COUNT(*) FROM (
+    SELECT %s FROM __bqtest_expected
+    EXCEPT DISTINCT
+    SELECT %s FROM __bqtest_actual
+  )) AS missing_count,
+  (SELECT COUNT(*) FROM __bqtest_actual) AS actual_count,
+  (SELECT COUNT(*) FROM __bqtest_expected) AS expected_count;`, colList, colList, colList, colList)
 }
 
 func sortedColumns(row map[string]any) []string {
@@ -128,7 +158,6 @@ func formatValue(v any) string {
 	case int64:
 		return fmt.Sprintf("%d", val)
 	case float64:
-		// YAML parses numbers as float64 by default
 		if val == float64(int64(val)) {
 			return fmt.Sprintf("%d", int64(val))
 		}
