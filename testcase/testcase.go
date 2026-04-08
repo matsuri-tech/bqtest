@@ -97,19 +97,117 @@ func (tc *TestCase) Validate() error {
 	return nil
 }
 
-// RewriteMap returns a mapping of fully-qualified table name to temp table name.
-func (tc *TestCase) RewriteMap() map[string]string {
-	m := make(map[string]string)
-	for _, f := range tc.Fixtures {
-		tempName := f.TempName
-		if tempName == "" {
-			// Use the last part of the fully-qualified name
-			parts := splitTablePath(f.Table)
-			tempName = parts[len(parts)-1]
+// normalizeTablePath returns a canonical dataset.table form for comparison.
+// For 3-part names (project.dataset.table), the project is stripped so that
+// a 2-part name "dataset.table" matches "project.dataset.table".
+func normalizeTablePath(table string) string {
+	parts := splitTablePath(table)
+	if len(parts) >= 2 {
+		// Use only the last two segments (dataset.table) for dedup.
+		return parts[len(parts)-2] + "." + parts[len(parts)-1]
+	}
+	return joinParts(parts)
+}
+
+func joinParts(parts []string) string {
+	result := ""
+	for i, p := range parts {
+		if i > 0 {
+			result += "."
 		}
-		m[f.Table] = tempName
+		result += p
+	}
+	return result
+}
+
+// RewriteMap returns a mapping of fully-qualified table name to temp table name.
+// When multiple fixtures share the same short table name (last segment) but
+// come from different datasets, the method automatically disambiguates by
+// prefixing with the dataset name (e.g. "dataset__table"). User-specified
+// temp_name values always take priority and are never modified.
+func (tc *TestCase) RewriteMap() map[string]string {
+	// First pass: deduplicate fixtures that refer to the same table
+	// (e.g. 2-part vs 3-part names) and collect auto-generated temp names.
+	type entry struct {
+		fixture   *Fixture
+		autoName  string // short table name (last segment)
+		dataset   string // dataset segment, if available
+		hasCustom bool
+	}
+
+	seen := make(map[string]*entry)   // normalized table -> entry
+	entries := make([]*entry, 0, len(tc.Fixtures))
+
+	for i := range tc.Fixtures {
+		f := &tc.Fixtures[i]
+		norm := normalizeTablePath(f.Table)
+
+		if prev, ok := seen[norm]; ok {
+			// Same table referenced twice — keep the one with a custom name
+			if f.TempName != "" {
+				prev.fixture = f
+				prev.hasCustom = true
+			}
+			continue
+		}
+
+		parts := splitTablePath(f.Table)
+		shortName := parts[len(parts)-1]
+		dataset := ""
+		if len(parts) >= 2 {
+			dataset = parts[len(parts)-2]
+		}
+
+		e := &entry{
+			fixture:   f,
+			autoName:  shortName,
+			dataset:   dataset,
+			hasCustom: f.TempName != "",
+		}
+		seen[norm] = e
+		entries = append(entries, e)
+	}
+
+	// Second pass: detect collisions among auto-generated names.
+	nameCount := make(map[string]int)
+	for _, e := range entries {
+		if e.hasCustom {
+			continue
+		}
+		nameCount[e.autoName]++
+	}
+
+	// Third pass: build the final map, disambiguating where needed.
+	// Replace hyphens with underscores in dataset names so the result is a
+	// valid SQL identifier.
+	m := make(map[string]string)
+	for _, e := range entries {
+		if e.hasCustom {
+			m[e.fixture.Table] = e.fixture.TempName
+			continue
+		}
+		tempName := e.autoName
+		if nameCount[tempName] > 1 && e.dataset != "" {
+			tempName = sanitizeIdentifier(e.dataset) + "__" + tempName
+		}
+		m[e.fixture.Table] = tempName
 	}
 	return m
+}
+
+// sanitizeIdentifier replaces characters that are invalid in SQL identifiers
+// (e.g. hyphens) with underscores.
+func sanitizeIdentifier(s string) string {
+	out := make([]byte, len(s))
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		if (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '_' {
+			out[i] = c
+		} else {
+			out[i] = '_'
+		}
+	}
+	return string(out)
 }
 
 func splitTablePath(path string) []string {
