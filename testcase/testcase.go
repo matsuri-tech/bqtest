@@ -26,6 +26,9 @@ type Fixture struct {
 	Table string `yaml:"table"`
 	// TempName is the TEMP TABLE name to use. Defaults to the table's short name.
 	TempName string `yaml:"temp_name,omitempty"`
+	// Columns defines the schema (column name → BigQuery type) for the table.
+	// Required when rows is empty to create a zero-row table with the correct schema.
+	Columns map[string]string `yaml:"columns,omitempty"`
 	// Rows is the fixture data as a list of maps.
 	Rows []map[string]any `yaml:"rows"`
 	// SQL is an alternative fixture definition as raw SQL (for complex types).
@@ -90,8 +93,8 @@ func (tc *TestCase) Validate() error {
 		if f.Table == "" {
 			return fmt.Errorf("fixture[%d]: table is required", i)
 		}
-		if len(f.Rows) == 0 && f.SQL == "" {
-			return fmt.Errorf("fixture[%d] (%s): rows or sql is required", i, f.Table)
+		if len(f.Rows) == 0 && f.SQL == "" && len(f.Columns) == 0 {
+			return fmt.Errorf("fixture[%d] (%s): rows, sql, or columns is required", i, f.Table)
 		}
 	}
 	return nil
