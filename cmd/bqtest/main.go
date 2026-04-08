@@ -20,16 +20,24 @@ const (
 	exitExecErr   = 3
 )
 
+var (
+	projectID  string
+	location   string
+	debug      bool
+	keepScript bool
+	dryRun     bool
+)
+
 func main() {
 	rootCmd := &cobra.Command{
-		Use:   "bqtest",
+		Use:   "bqtest [flags] <testfile>...",
 		Short: "BigQuery SQL Test Runner",
 		Long: `bqtest - BigQuery SQL Test Runner
 
 Test BigQuery SQL by replacing table references with test fixtures,
 executing on BigQuery, and comparing results with expected output.
 
-Run Options:
+Options:
   --project <id>    BigQuery project ID (default: BQTEST_PROJECT env or gcloud config)
   --location <loc>  BigQuery location (default: BQTEST_LOCATION env)
   --dry-run         Parse and show test details without executing on BigQuery
@@ -43,11 +51,12 @@ Exit Codes:
   3  BigQuery execution error
 
 Examples:
-  bqtest run tests/test_1.yaml             # Run a single test
-  bqtest run tests/*.yaml                  # Run all tests matching glob
-  bqtest run --dry-run tests/test_1.yaml   # Validate without executing
-  bqtest run --debug tests/test_1.yaml     # Show rewritten SQL and generated script
-  bqtest run --project my-proj test.yaml   # Specify BigQuery project
+  bqtest tests/test_1.yaml                 # Run a single test
+  bqtest tests/*.yaml                      # Run all tests matching glob
+  bqtest --dry-run tests/test_1.yaml       # Validate without executing
+  bqtest --debug tests/test_1.yaml         # Show rewritten SQL and generated script
+  bqtest --project my-proj tests/*.yaml    # Specify BigQuery project
+  bqtest run tests/*.yaml                  # Explicit 'run' subcommand (same behavior)
 
 YAML Test Format:
   test_name: user_total_amount
@@ -71,77 +80,34 @@ YAML Test Format:
   # fixtures:
   #   - table: myproj.dataset.events
   #     sql: "SELECT 1 AS id, STRUCT('a' AS key, 1 AS val) AS metadata"`,
-	}
-
-	var projectID, location string
-	var debug, keepScript, dryRun bool
-
-	runCmd := &cobra.Command{
-		Use:   "run <testfile>...",
-		Short: "Run test cases",
-		Example: `  bqtest run tests/test_1.yaml
-  bqtest run tests/*.yaml
-  bqtest run --dry-run tests/test_1.yaml
-  bqtest run --debug tests/test_1.yaml
-  bqtest run --project my-project --location asia-northeast1 tests/*.yaml`,
-		Args: cobra.MinimumNArgs(1),
+		Args:                  cobra.ArbitraryArgs,
+		DisableFlagsInUseLine: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			if dryRun {
-				return runDryRun(args)
+			if len(args) == 0 {
+				return cmd.Help()
 			}
-
-			if projectID == "" {
-				projectID = detectDefaultProject()
-			}
-			if projectID == "" {
-				fmt.Fprintln(os.Stderr, "Error: BigQuery project ID is required.\n\nSpecify it with one of:\n  --project <project-id>\n  BQTEST_PROJECT=<project-id>\n  gcloud config set project <project-id>")
-				os.Exit(exitConfigErr)
-			}
-
-			ctx := context.Background()
-			hasFailure := false
-			hasError := false
-
-			for _, path := range args {
-				tc, err := testcase.LoadFile(path)
-				if err != nil {
-					fmt.Fprintf(os.Stderr, "Error loading %s: %v\n", path, err)
-					hasError = true
-					continue
-				}
-
-				result := runner.Run(ctx, tc, runner.RunOptions{
-					ProjectID:  projectID,
-					Location:   location,
-					Debug:      debug,
-					KeepScript: keepScript,
-					Output:     os.Stdout,
-				})
-
-				runner.Report(os.Stdout, result)
-
-				if result.Err != nil {
-					hasError = true
-				} else if !result.Success {
-					hasFailure = true
-				}
-			}
-
-			if hasError {
-				os.Exit(exitExecErr)
-			}
-			if hasFailure {
-				os.Exit(exitTestFail)
-			}
-			return nil
+			return executeRun(args)
 		},
 	}
 
-	runCmd.Flags().StringVar(&projectID, "project", os.Getenv("BQTEST_PROJECT"), "BigQuery project ID")
-	runCmd.Flags().StringVar(&location, "location", os.Getenv("BQTEST_LOCATION"), "BigQuery location")
-	runCmd.Flags().BoolVar(&dryRun, "dry-run", false, "Parse and show test details without executing")
-	runCmd.Flags().BoolVar(&debug, "debug", false, "Show rewritten SQL and generated script")
-	runCmd.Flags().BoolVar(&keepScript, "keep-script", false, "Save generated script to file")
+	runCmd := &cobra.Command{
+		Use:    "run [flags] <testfile>...",
+		Short:  "Run test cases (same as 'bqtest <testfile>...')",
+		Hidden: false,
+		Args:   cobra.MinimumNArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return executeRun(args)
+		},
+	}
+
+	// Register flags on both root and run commands
+	for _, cmd := range []*cobra.Command{rootCmd, runCmd} {
+		cmd.Flags().StringVar(&projectID, "project", os.Getenv("BQTEST_PROJECT"), "BigQuery project ID")
+		cmd.Flags().StringVar(&location, "location", os.Getenv("BQTEST_LOCATION"), "BigQuery location")
+		cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Parse and show test details without executing")
+		cmd.Flags().BoolVar(&debug, "debug", false, "Show rewritten SQL and generated script")
+		cmd.Flags().BoolVar(&keepScript, "keep-script", false, "Save generated script to file")
+	}
 
 	rootCmd.AddCommand(runCmd)
 
@@ -150,7 +116,58 @@ YAML Test Format:
 	}
 }
 
-func runDryRun(args []string) error {
+func executeRun(args []string) error {
+	if dryRun {
+		return executeDryRun(args)
+	}
+
+	if projectID == "" {
+		projectID = detectDefaultProject()
+	}
+	if projectID == "" {
+		fmt.Fprintln(os.Stderr, "Error: BigQuery project ID is required.\n\nSpecify it with one of:\n  --project <project-id>\n  BQTEST_PROJECT=<project-id>\n  gcloud config set project <project-id>")
+		os.Exit(exitConfigErr)
+	}
+
+	ctx := context.Background()
+	hasFailure := false
+	hasError := false
+
+	for _, path := range args {
+		tc, err := testcase.LoadFile(path)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error loading %s: %v\n", path, err)
+			hasError = true
+			continue
+		}
+
+		result := runner.Run(ctx, tc, runner.RunOptions{
+			ProjectID:  projectID,
+			Location:   location,
+			Debug:      debug,
+			KeepScript: keepScript,
+			Output:     os.Stdout,
+		})
+
+		runner.Report(os.Stdout, result)
+
+		if result.Err != nil {
+			hasError = true
+		} else if !result.Success {
+			hasFailure = true
+		}
+	}
+
+	if hasError {
+		os.Exit(exitExecErr)
+	}
+	if hasFailure {
+		os.Exit(exitTestFail)
+	}
+	return nil
+}
+
+func executeDryRun(args []string) error {
 	hasError := false
 	for _, path := range args {
 		tc, err := testcase.LoadFile(path)
@@ -184,7 +201,6 @@ func runDryRun(args []string) error {
 			fmt.Printf("Passthrough: %v\n", tc.Passthrough)
 		}
 
-		// Show rewrite result
 		passthrough := make(map[string]bool)
 		for _, p := range tc.Passthrough {
 			passthrough[p] = true
@@ -210,7 +226,6 @@ func runDryRun(args []string) error {
 	return nil
 }
 
-// detectDefaultProject tries to find the default GCP project from environment or gcloud config.
 func detectDefaultProject() string {
 	for _, env := range []string{"GOOGLE_CLOUD_PROJECT", "GCLOUD_PROJECT", "CLOUDSDK_CORE_PROJECT"} {
 		if v := os.Getenv(env); v != "" {
