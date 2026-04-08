@@ -11,13 +11,11 @@ permissions:
 jobs:
   build:
     strategy:
+      fail-fast: false
       matrix:
         include:
           - os: ubuntu-latest
             goos: linux
-            goarch: amd64
-          - os: macos-13
-            goos: darwin
             goarch: amd64
           - os: macos-latest
             goos: darwin
@@ -29,9 +27,17 @@ jobs:
         with:
           go-version-file: go.mod
 
+      - name: Install clang (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang
+
       - name: Build
         env:
           CGO_ENABLED: 1
+          CC: clang
+          CXX: clang++
         run: |
           BINARY_NAME=bqtest-${{ matrix.goos }}-${{ matrix.goarch }}
           go build -o ${BINARY_NAME} ./cmd/bqtest/
