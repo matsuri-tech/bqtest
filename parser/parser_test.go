@@ -206,3 +206,53 @@ func TestStripDDL_RejectsDelete(t *testing.T) {
 		t.Error("expected error for DELETE")
 	}
 }
+
+func TestStripDDL_RejectsUpdate(t *testing.T) {
+	sql := "UPDATE `p.d.t` SET x = 1 WHERE id = 1"
+	_, _, err := StripDDL(sql)
+	if err == nil {
+		t.Error("expected error for UPDATE")
+	}
+}
+
+func TestStripDDL_RejectsMerge(t *testing.T) {
+	sql := "MERGE `p.d.t` T USING `p.d.s` S ON T.id = S.id WHEN MATCHED THEN UPDATE SET T.x = S.x"
+	_, _, err := StripDDL(sql)
+	if err == nil {
+		t.Error("expected error for MERGE")
+	}
+}
+
+func TestStripDDL_RejectsDDL(t *testing.T) {
+	sql := "CREATE TABLE `p.d.t` (id INT64)"
+	_, _, err := StripDDL(sql)
+	if err == nil {
+		t.Error("expected error for DDL")
+	}
+}
+
+func TestStripDDL_MultiStatementScript(t *testing.T) {
+	sql := "DECLARE x INT64 DEFAULT 1;\nSELECT * FROM `p.d.orders`;"
+	got, kind, err := StripDDL(sql)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if kind != SQLKindSelect {
+		t.Errorf("expected SELECT, got %v", kind)
+	}
+	// Multi-statement scripts are returned unchanged
+	if got != sql {
+		t.Errorf("expected original SQL preserved, got %q", got)
+	}
+}
+
+func TestClassifySQL_MultiStatement(t *testing.T) {
+	sql := "DECLARE x INT64 DEFAULT 1;\nSELECT * FROM `p.d.orders`;"
+	got, err := ClassifySQL(sql)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got != SQLKindSelect {
+		t.Errorf("expected SELECT for multi-statement script, got %v", got)
+	}
+}
