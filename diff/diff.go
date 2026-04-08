@@ -9,51 +9,72 @@ import (
 // Row is a map of column name to value.
 type Row map[string]any
 
+// IndexedRow is a row with its original index in the expected/actual list.
+type IndexedRow struct {
+	Row   Row
+	Index int // 1-based line number
+}
+
 // Result holds the diff between actual and expected rows.
 type Result struct {
 	Match   bool
-	Extra   []Row // in actual but not in expected
-	Missing []Row // in expected but not in actual
+	Extra   []IndexedRow // in actual but not in expected
+	Missing []IndexedRow // in expected but not in actual
 	Columns []string
 }
 
 // Compare performs an unordered set comparison between actual and expected rows.
-// Values are compared by their string representation for simplicity.
 func Compare(actual []Row, expected []Row) *Result {
 	columns := collectColumns(actual, expected)
 
-	// Build multiset of row keys
-	actualKeys := make(map[string]int)
-	actualByKey := make(map[string][]Row)
-	for _, row := range actual {
-		key := rowKey(row, columns)
-		actualKeys[key]++
-		actualByKey[key] = append(actualByKey[key], row)
+	type indexedEntry struct {
+		rows    []IndexedRow
+		count   int
 	}
 
-	expectedKeys := make(map[string]int)
-	expectedByKey := make(map[string][]Row)
-	for _, row := range expected {
+	actualByKey := make(map[string]*indexedEntry)
+	for i, row := range actual {
 		key := rowKey(row, columns)
-		expectedKeys[key]++
-		expectedByKey[key] = append(expectedByKey[key], row)
+		e := actualByKey[key]
+		if e == nil {
+			e = &indexedEntry{}
+			actualByKey[key] = e
+		}
+		e.rows = append(e.rows, IndexedRow{Row: row, Index: i + 1})
+		e.count++
 	}
 
-	var extra, missing []Row
+	expectedByKey := make(map[string]*indexedEntry)
+	for i, row := range expected {
+		key := rowKey(row, columns)
+		e := expectedByKey[key]
+		if e == nil {
+			e = &indexedEntry{}
+			expectedByKey[key] = e
+		}
+		e.rows = append(e.rows, IndexedRow{Row: row, Index: i + 1})
+		e.count++
+	}
 
-	// Find rows in actual but not in expected (or more copies than expected)
-	for key, aCount := range actualKeys {
-		eCount := expectedKeys[key]
-		for i := 0; i < aCount-eCount; i++ {
-			extra = append(extra, actualByKey[key][eCount+i])
+	var extra, missing []IndexedRow
+
+	for key, ae := range actualByKey {
+		eCount := 0
+		if ee, ok := expectedByKey[key]; ok {
+			eCount = ee.count
+		}
+		for i := 0; i < ae.count-eCount; i++ {
+			extra = append(extra, ae.rows[eCount+i])
 		}
 	}
 
-	// Find rows in expected but not in actual (or more copies than expected)
-	for key, eCount := range expectedKeys {
-		aCount := actualKeys[key]
-		for i := 0; i < eCount-aCount; i++ {
-			missing = append(missing, expectedByKey[key][aCount+i])
+	for key, ee := range expectedByKey {
+		aCount := 0
+		if ae, ok := actualByKey[key]; ok {
+			aCount = ae.count
+		}
+		for i := 0; i < ee.count-aCount; i++ {
+			missing = append(missing, ee.rows[aCount+i])
 		}
 	}
 
@@ -79,40 +100,42 @@ func (r *Result) Format() string {
 		for _, col := range r.Columns {
 			widths[col] = len(col)
 		}
-		allRows := append(r.Missing, r.Extra...)
-		for _, row := range allRows {
-			for _, col := range r.Columns {
-				w := len(formatVal(row[col]))
-				if w > widths[col] {
-					widths[col] = w
-				}
-			}
+		for _, ir := range r.Missing {
+			updateWidths(widths, ir.Row, r.Columns)
+		}
+		for _, ir := range r.Extra {
+			updateWidths(widths, ir.Row, r.Columns)
 		}
 
 		// Header
 		sb.WriteString("  ")
-		sb.WriteString(formatTableRow(r.Columns, widths, "  "))
+		sb.WriteString(formatTableRow(r.Columns, widths))
 		sb.WriteString("\n")
 
 		// Missing rows (expected but not in actual)
-		for _, row := range r.Missing {
-			sb.WriteString("- ")
-			sb.WriteString(formatRowValues(row, r.Columns, widths))
-			sb.WriteString("\n")
+		for _, ir := range r.Missing {
+			fmt.Fprintf(&sb, "- %s  (expected row %d)\n", formatRowValues(ir.Row, r.Columns, widths), ir.Index)
 		}
 
 		// Extra rows (in actual but not in expected)
-		for _, row := range r.Extra {
-			sb.WriteString("+ ")
-			sb.WriteString(formatRowValues(row, r.Columns, widths))
-			sb.WriteString("\n")
+		for _, ir := range r.Extra {
+			fmt.Fprintf(&sb, "+ %s  (actual row %d)\n", formatRowValues(ir.Row, r.Columns, widths), ir.Index)
 		}
 	}
 
 	return sb.String()
 }
 
-func formatTableRow(columns []string, widths map[string]int, prefix string) string {
+func updateWidths(widths map[string]int, row Row, columns []string) {
+	for _, col := range columns {
+		w := len(formatVal(row[col]))
+		if w > widths[col] {
+			widths[col] = w
+		}
+	}
+}
+
+func formatTableRow(columns []string, widths map[string]int) string {
 	var parts []string
 	for _, col := range columns {
 		parts = append(parts, fmt.Sprintf("%-*s", widths[col], col))

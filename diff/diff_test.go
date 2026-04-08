@@ -99,11 +99,11 @@ func TestCompare_DuplicateRows(t *testing.T) {
 func TestFormat_Output(t *testing.T) {
 	r := &Result{
 		Match: false,
-		Extra: []Row{
-			{"user_id": int64(10), "total": int64(300)},
+		Extra: []IndexedRow{
+			{Row: Row{"user_id": int64(10), "total": int64(300)}, Index: 1},
 		},
-		Missing: []Row{
-			{"user_id": int64(10), "total": int64(999)},
+		Missing: []IndexedRow{
+			{Row: Row{"user_id": int64(10), "total": int64(999)}, Index: 1},
 		},
 		Columns: []string{"total", "user_id"},
 	}
@@ -119,5 +119,8 @@ func TestFormat_Output(t *testing.T) {
 	}
 	if !strings.Contains(out, "300") {
 		t.Errorf("expected extra value 300:\n%s", out)
+	}
+	if !strings.Contains(out, "expected row 1") {
+		t.Errorf("expected row number annotation:\n%s", out)
 	}
 }
