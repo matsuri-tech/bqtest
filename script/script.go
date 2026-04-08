@@ -77,11 +77,43 @@ func sortedKeys(row map[string]any) []string {
 	return keys
 }
 
+// typedLiteralPrefixes are BigQuery types that use the TYPE 'value' literal syntax.
+var typedLiteralPrefixes = map[string]bool{
+	"DATE":       true,
+	"TIMESTAMP":  true,
+	"DATETIME":   true,
+	"TIME":       true,
+	"NUMERIC":    true,
+	"BIGNUMERIC": true,
+	"INTERVAL":   true,
+	"JSON":       true,
+	"BYTES":      true,
+}
+
+// typedCastPrefixes are BigQuery types that use the CAST(value AS TYPE) syntax.
+var typedCastPrefixes = map[string]bool{
+	"INT64":   true,
+	"FLOAT64": true,
+	"BOOL":    true,
+	"STRING":  true,
+}
+
 func formatValue(v any) string {
 	switch val := v.(type) {
 	case nil:
 		return "NULL"
 	case string:
+		if idx := strings.Index(val, ":"); idx > 0 {
+			prefix := val[:idx]
+			value := val[idx+1:]
+			if typedLiteralPrefixes[prefix] {
+				escaped := strings.ReplaceAll(value, "'", "\\'")
+				return fmt.Sprintf("%s '%s'", prefix, escaped)
+			}
+			if typedCastPrefixes[prefix] {
+				return fmt.Sprintf("CAST(%s AS %s)", value, prefix)
+			}
+		}
 		escaped := strings.ReplaceAll(val, "'", "\\'")
 		return fmt.Sprintf("'%s'", escaped)
 	case bool:

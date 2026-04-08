@@ -190,3 +190,41 @@ func TestFormatValue(t *testing.T) {
 		}
 	}
 }
+
+func TestFormatValue_TypedLiterals(t *testing.T) {
+	tests := []struct {
+		input    string
+		expected string
+	}{
+		// Literal-style types
+		{"DATE:2025-05-15", "DATE '2025-05-15'"},
+		{"TIMESTAMP:2025-05-15 00:00:00", "TIMESTAMP '2025-05-15 00:00:00'"},
+		{"DATETIME:2025-05-15T12:00:00", "DATETIME '2025-05-15T12:00:00'"},
+		{"TIME:12:30:00", "TIME '12:30:00'"},
+		{"NUMERIC:48000", "NUMERIC '48000'"},
+		{"BIGNUMERIC:12345678901234567890", "BIGNUMERIC '12345678901234567890'"},
+		{"INTERVAL:1 YEAR", "INTERVAL '1 YEAR'"},
+		{"JSON:{\"key\":\"val\"}", "JSON '{\"key\":\"val\"}'"},
+		{"BYTES:abc", "BYTES 'abc'"},
+
+		// CAST-style types
+		{"INT64:123", "CAST(123 AS INT64)"},
+		{"FLOAT64:1.5", "CAST(1.5 AS FLOAT64)"},
+		{"BOOL:true", "CAST(true AS BOOL)"},
+		{"STRING:hello", "CAST(hello AS STRING)"},
+
+		// Regular strings (no known prefix)
+		{"hello:world", "'hello:world'"},
+		{"no_prefix", "'no_prefix'"},
+		{"", "''"},
+
+		// Edge case: value containing single quotes
+		{"DATE:2025-01-01'test", "DATE '2025-01-01\\'test'"},
+	}
+	for _, tt := range tests {
+		got := formatValue(tt.input)
+		if got != tt.expected {
+			t.Errorf("formatValue(%q): expected %s, got %s", tt.input, tt.expected, got)
+		}
+	}
+}
