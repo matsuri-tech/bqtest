@@ -32,10 +32,26 @@ func main() {
 	rootCmd := &cobra.Command{
 		Use:   "bqtest [flags] <testfile>...",
 		Short: "BigQuery SQL Test Runner",
-		Long: `bqtest - BigQuery SQL Test Runner
+		Long:                  "Test BigQuery SQL by replacing table references with test fixtures,\nexecuting on BigQuery, and comparing results with expected output.",
+		Args:                  cobra.ArbitraryArgs,
+		DisableFlagsInUseLine: true,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if len(args) == 0 {
+				return cmd.Help()
+			}
+			return executeRun(args)
+		},
+	}
 
-Test BigQuery SQL by replacing table references with test fixtures,
-executing on BigQuery, and comparing results with expected output.
+	rootCmd.SetHelpTemplate(`bqtest - BigQuery SQL Test Runner
+
+{{.Long}}
+
+Usage:
+  bqtest [flags] <testfile>...
+
+Available Commands:
+  run         Run test cases (same as 'bqtest <testfile>...')
 
 Options:
   --project <id>    BigQuery project ID (default: BQTEST_PROJECT env or gcloud config)
@@ -43,6 +59,7 @@ Options:
   --dry-run         Parse and show test details without executing on BigQuery
   --debug           Show rewritten SQL and generated BigQuery script
   --keep-script     Save generated script to <test_name>.bqtest.sql
+  -h, --help        Show this help
 
 Exit Codes:
   0  All tests passed
@@ -79,16 +96,8 @@ YAML Test Format:
   # For complex types (STRUCT, ARRAY), use SQL fixtures:
   # fixtures:
   #   - table: myproj.dataset.events
-  #     sql: "SELECT 1 AS id, STRUCT('a' AS key, 1 AS val) AS metadata"`,
-		Args:                  cobra.ArbitraryArgs,
-		DisableFlagsInUseLine: true,
-		RunE: func(cmd *cobra.Command, args []string) error {
-			if len(args) == 0 {
-				return cmd.Help()
-			}
-			return executeRun(args)
-		},
-	}
+  #     sql: "SELECT 1 AS id, STRUCT('a' AS key, 1 AS val) AS metadata"
+`)
 
 	runCmd := &cobra.Command{
 		Use:    "run [flags] <testfile>...",
