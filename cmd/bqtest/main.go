@@ -14,6 +14,8 @@ import (
 	"github.com/spf13/cobra"
 )
 
+var version = "dev"
+
 const exitFail = 1
 
 var (
@@ -26,9 +28,9 @@ var (
 
 func main() {
 	rootCmd := &cobra.Command{
-		Use:   "bqtest [flags] <testfile>...",
-		Short: "BigQuery SQL Test Runner",
-		Long:                  "Test BigQuery SQL by replacing table references with test fixtures,\nexecuting on BigQuery, and comparing results with expected output.",
+		Use:     "bqtest [flags] <testfile>...",
+		Short:   "BigQuery SQL Test Runner",
+		Long:    "Test BigQuery SQL by replacing table references with test fixtures,\nexecuting on BigQuery, and comparing results with expected output.",
 		Args:                  cobra.ArbitraryArgs,
 		DisableFlagsInUseLine: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -48,6 +50,7 @@ Usage:
 
 Available Commands:
   run         Run test cases (same as 'bqtest <testfile>...')
+  version     Print the version
 
 Options:
   --project <id>    BigQuery project ID (default: BQTEST_PROJECT env or gcloud config)
@@ -108,7 +111,15 @@ YAML Test Format:
 		cmd.Flags().BoolVar(&keepScript, "keep-script", false, "Save generated script to file")
 	}
 
-	rootCmd.AddCommand(runCmd)
+	versionCmd := &cobra.Command{
+		Use:   "version",
+		Short: "Print the version",
+		Run: func(cmd *cobra.Command, args []string) {
+			fmt.Println("bqtest " + version)
+		},
+	}
+
+	rootCmd.AddCommand(runCmd, versionCmd)
 
 	if err := rootCmd.Execute(); err != nil {
 		os.Exit(exitFail)

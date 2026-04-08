@@ -39,7 +39,7 @@ jobs:
           CGO_ENABLED: 1
           CC: clang
           CXX: clang++
-        run: go build -o bqtest-${{ matrix.goos }}-${{ matrix.goarch }} ./cmd/bqtest/
+        run: go build -ldflags "-X main.version=${{ github.ref_name }}" -o bqtest-${{ matrix.goos }}-${{ matrix.goarch }} ./cmd/bqtest/
 
       - name: Ad-hoc codesign (macOS)
         if: runner.os == 'macOS'
