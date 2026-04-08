@@ -23,7 +23,46 @@ func main() {
 	rootCmd := &cobra.Command{
 		Use:   "bqtest",
 		Short: "BigQuery SQL Test Runner",
-		Long:  "Test BigQuery SQL by replacing table references with fixtures and comparing results.",
+		Long: `bqtest - BigQuery SQL Test Runner
+
+Test BigQuery SQL by replacing table references with test fixtures,
+executing on BigQuery, and comparing results with expected output.
+
+Examples:
+  bqtest run tests/test_1.yaml             # Run a single test
+  bqtest run tests/*.yaml                  # Run all tests matching glob
+  bqtest run --debug tests/test_1.yaml     # Show rewritten SQL and generated script
+  bqtest run --project my-proj test.yaml   # Specify BigQuery project
+  bqtest inspect tests/test_1.yaml         # Show test case details without running
+
+YAML Test Format:
+  test_name: user_total_amount
+  description: Verify SUM aggregation by user_id
+  sql_file: queries/total_amount.sql       # Path to SQL file (relative to YAML)
+  fixtures:
+    - table: myproj.dataset.orders         # Fully-qualified table to replace
+      rows:
+        - {order_id: 1, user_id: 10, amount: 100}
+        - {order_id: 2, user_id: 10, amount: 200}
+        - {order_id: 3, user_id: 20, amount: 50}
+  expected:
+    rows:
+      - {user_id: 10, total_amount: 300}
+      - {user_id: 20, total_amount: 50}
+
+  # Or inline SQL instead of sql_file:
+  # sql: "SELECT user_id, SUM(amount) AS total_amount FROM ` + "`myproj.dataset.orders`" + ` GROUP BY user_id"
+
+  # For complex types (STRUCT, ARRAY), use SQL fixtures:
+  # fixtures:
+  #   - table: myproj.dataset.events
+  #     sql: "SELECT 1 AS id, STRUCT('a' AS key, 1 AS val) AS metadata"
+
+Exit Codes:
+  0  All tests passed
+  1  One or more tests failed
+  2  Configuration or parsing error
+  3  BigQuery execution error`,
 	}
 
 	var projectID, location string
@@ -32,7 +71,11 @@ func main() {
 	runCmd := &cobra.Command{
 		Use:   "run <testfile>...",
 		Short: "Run test cases",
-		Args:  cobra.MinimumNArgs(1),
+		Example: `  bqtest run tests/test_1.yaml
+  bqtest run tests/*.yaml
+  bqtest run --debug tests/test_1.yaml
+  bqtest run --project my-project --location asia-northeast1 tests/*.yaml`,
+		Args: cobra.MinimumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if projectID == "" {
 				projectID = detectDefaultProject()
