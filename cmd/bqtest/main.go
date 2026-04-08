@@ -7,16 +7,17 @@ import (
 	"os/exec"
 	"strings"
 
+	"github.com/matsuri-tech/bqtest/rewriter"
 	"github.com/matsuri-tech/bqtest/runner"
+	"github.com/matsuri-tech/bqtest/script"
 	"github.com/matsuri-tech/bqtest/testcase"
 	"github.com/spf13/cobra"
 )
 
 const (
-	exitSuccess    = 0
-	exitTestFail   = 1
-	exitConfigErr  = 2
-	exitExecErr    = 3
+	exitTestFail  = 1
+	exitConfigErr = 2
+	exitExecErr   = 3
 )
 
 func main() {
@@ -31,6 +32,7 @@ executing on BigQuery, and comparing results with expected output.
 Run Options:
   --project <id>    BigQuery project ID (default: BQTEST_PROJECT env or gcloud config)
   --location <loc>  BigQuery location (default: BQTEST_LOCATION env)
+  --dry-run         Parse and show test details without executing on BigQuery
   --debug           Show rewritten SQL and generated BigQuery script
   --keep-script     Save generated script to <test_name>.bqtest.sql
 
@@ -43,9 +45,9 @@ Exit Codes:
 Examples:
   bqtest run tests/test_1.yaml             # Run a single test
   bqtest run tests/*.yaml                  # Run all tests matching glob
+  bqtest run --dry-run tests/test_1.yaml   # Validate without executing
   bqtest run --debug tests/test_1.yaml     # Show rewritten SQL and generated script
   bqtest run --project my-proj test.yaml   # Specify BigQuery project
-  bqtest inspect tests/test_1.yaml         # Show test case details without running
 
 YAML Test Format:
   test_name: user_total_amount
@@ -72,17 +74,22 @@ YAML Test Format:
 	}
 
 	var projectID, location string
-	var debug, keepScript bool
+	var debug, keepScript, dryRun bool
 
 	runCmd := &cobra.Command{
 		Use:   "run <testfile>...",
 		Short: "Run test cases",
 		Example: `  bqtest run tests/test_1.yaml
   bqtest run tests/*.yaml
+  bqtest run --dry-run tests/test_1.yaml
   bqtest run --debug tests/test_1.yaml
   bqtest run --project my-project --location asia-northeast1 tests/*.yaml`,
 		Args: cobra.MinimumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if dryRun {
+				return runDryRun(args)
+			}
+
 			if projectID == "" {
 				projectID = detectDefaultProject()
 			}
@@ -132,59 +139,84 @@ YAML Test Format:
 
 	runCmd.Flags().StringVar(&projectID, "project", os.Getenv("BQTEST_PROJECT"), "BigQuery project ID")
 	runCmd.Flags().StringVar(&location, "location", os.Getenv("BQTEST_LOCATION"), "BigQuery location")
+	runCmd.Flags().BoolVar(&dryRun, "dry-run", false, "Parse and show test details without executing")
 	runCmd.Flags().BoolVar(&debug, "debug", false, "Show rewritten SQL and generated script")
 	runCmd.Flags().BoolVar(&keepScript, "keep-script", false, "Save generated script to file")
 
-	inspectCmd := &cobra.Command{
-		Use:   "inspect <testfile>",
-		Short: "Show parsed test case details",
-		Args:  cobra.ExactArgs(1),
-		RunE: func(cmd *cobra.Command, args []string) error {
-			tc, err := testcase.LoadFile(args[0])
-			if err != nil {
-				return err
-			}
-
-			fmt.Printf("Test:        %s\n", tc.TestName)
-			if tc.Description != "" {
-				fmt.Printf("Description: %s\n", tc.Description)
-			}
-			if len(tc.Tags) > 0 {
-				fmt.Printf("Tags:        %v\n", tc.Tags)
-			}
-			fmt.Printf("Fixtures:    %d\n", len(tc.Fixtures))
-			for _, f := range tc.Fixtures {
-				tempName := f.TempName
-				if tempName == "" {
-					parts := splitLast(f.Table, ".")
-					tempName = parts
-				}
-				fmt.Printf("  %s -> %s (%d rows)\n", f.Table, tempName, len(f.Rows))
-			}
-			fmt.Printf("Expected:    %d rows\n", len(tc.Expected.Rows))
-			if len(tc.Passthrough) > 0 {
-				fmt.Printf("Passthrough: %v\n", tc.Passthrough)
-			}
-			return nil
-		},
-	}
-
-	rootCmd.AddCommand(runCmd, inspectCmd)
+	rootCmd.AddCommand(runCmd)
 
 	if err := rootCmd.Execute(); err != nil {
 		os.Exit(exitConfigErr)
 	}
 }
 
+func runDryRun(args []string) error {
+	hasError := false
+	for _, path := range args {
+		tc, err := testcase.LoadFile(path)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error loading %s: %v\n", path, err)
+			hasError = true
+			continue
+		}
+
+		fmt.Printf("Test:        %s\n", tc.TestName)
+		if tc.Description != "" {
+			fmt.Printf("Description: %s\n", tc.Description)
+		}
+		if len(tc.Tags) > 0 {
+			fmt.Printf("Tags:        %v\n", tc.Tags)
+		}
+		fmt.Printf("Fixtures:    %d\n", len(tc.Fixtures))
+		rewriteMap := tc.RewriteMap()
+		for table, tempName := range rewriteMap {
+			var rowCount int
+			for _, f := range tc.Fixtures {
+				if f.Table == table {
+					rowCount = len(f.Rows)
+					break
+				}
+			}
+			fmt.Printf("  %s -> %s (%d rows)\n", table, tempName, rowCount)
+		}
+		fmt.Printf("Expected:    %d rows\n", len(tc.Expected.Rows))
+		if len(tc.Passthrough) > 0 {
+			fmt.Printf("Passthrough: %v\n", tc.Passthrough)
+		}
+
+		// Show rewrite result
+		passthrough := make(map[string]bool)
+		for _, p := range tc.Passthrough {
+			passthrough[p] = true
+		}
+		rewriteResult, err := rewriter.Rewrite(tc.SQL, rewriteMap, passthrough)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "  Rewrite error: %v\n", err)
+			hasError = true
+			continue
+		}
+		if len(rewriteResult.UnresolvedTables) > 0 {
+			fmt.Printf("  Unresolved: %v\n", rewriteResult.UnresolvedTables)
+		}
+
+		fmt.Printf("\n=== Rewritten SQL ===\n%s\n", rewriteResult.SQL)
+		fmt.Printf("\n=== Generated Script ===\n%s\n", script.Generate(tc, rewriteResult.SQL))
+		fmt.Println()
+	}
+
+	if hasError {
+		os.Exit(exitConfigErr)
+	}
+	return nil
+}
+
 // detectDefaultProject tries to find the default GCP project from environment or gcloud config.
 func detectDefaultProject() string {
-	// 1. Standard env vars
 	for _, env := range []string{"GOOGLE_CLOUD_PROJECT", "GCLOUD_PROJECT", "CLOUDSDK_CORE_PROJECT"} {
 		if v := os.Getenv(env); v != "" {
 			return v
 		}
 	}
-	// 2. gcloud config
 	out, err := exec.Command("gcloud", "config", "get-value", "project").Output()
 	if err == nil {
 		if p := strings.TrimSpace(string(out)); p != "" && p != "(unset)" {
@@ -192,13 +224,4 @@ func detectDefaultProject() string {
 		}
 	}
 	return ""
-}
-
-func splitLast(s, sep string) string {
-	for i := len(s) - 1; i >= 0; i-- {
-		if string(s[i]) == sep {
-			return s[i+1:]
-		}
-	}
-	return s
 }
