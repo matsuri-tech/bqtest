@@ -14,11 +14,7 @@ import (
 	"github.com/spf13/cobra"
 )
 
-const (
-	exitTestFail  = 1
-	exitConfigErr = 2
-	exitExecErr   = 3
-)
+const exitFail = 1
 
 var (
 	projectID  string
@@ -63,9 +59,7 @@ Options:
 
 Exit Codes:
   0  All tests passed
-  1  One or more tests failed
-  2  Configuration or parsing error
-  3  BigQuery execution error
+  1  Failure (test failure, configuration error, or execution error)
 
 Examples:
   bqtest tests/test_1.yaml                 # Run a single test
@@ -121,7 +115,7 @@ YAML Test Format:
 	rootCmd.AddCommand(runCmd)
 
 	if err := rootCmd.Execute(); err != nil {
-		os.Exit(exitConfigErr)
+		os.Exit(exitFail)
 	}
 }
 
@@ -135,18 +129,17 @@ func executeRun(args []string) error {
 	}
 	if projectID == "" {
 		fmt.Fprintln(os.Stderr, "Error: BigQuery project ID is required.\n\nSpecify it with one of:\n  --project <project-id>\n  BQTEST_PROJECT=<project-id>\n  gcloud config set project <project-id>")
-		os.Exit(exitConfigErr)
+		os.Exit(exitFail)
 	}
 
 	ctx := context.Background()
-	hasFailure := false
-	hasError := false
+	failed := false
 
 	for _, path := range args {
 		tc, err := testcase.LoadFile(path)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Error loading %s: %v\n", path, err)
-			hasError = true
+			failed = true
 			continue
 		}
 
@@ -160,18 +153,13 @@ func executeRun(args []string) error {
 
 		runner.Report(os.Stdout, result)
 
-		if result.Err != nil {
-			hasError = true
-		} else if !result.Success {
-			hasFailure = true
+		if result.Err != nil || !result.Success {
+			failed = true
 		}
 	}
 
-	if hasError {
-		os.Exit(exitExecErr)
-	}
-	if hasFailure {
-		os.Exit(exitTestFail)
+	if failed {
+		os.Exit(exitFail)
 	}
 	return nil
 }
@@ -230,7 +218,7 @@ func executeDryRun(args []string) error {
 	}
 
 	if hasError {
-		os.Exit(exitConfigErr)
+		os.Exit(exitFail)
 	}
 	return nil
 }
