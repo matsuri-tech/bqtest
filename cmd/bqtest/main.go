@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"os/exec"
+	"strings"
 
 	"github.com/matsuri-tech/bqtest/runner"
 	"github.com/matsuri-tech/bqtest/testcase"
@@ -32,6 +34,14 @@ func main() {
 		Short: "Run test cases",
 		Args:  cobra.MinimumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if projectID == "" {
+				projectID = detectDefaultProject()
+			}
+			if projectID == "" {
+				fmt.Fprintln(os.Stderr, "Error: BigQuery project ID is required.\n\nSpecify it with one of:\n  --project <project-id>\n  BQTEST_PROJECT=<project-id>\n  gcloud config set project <project-id>")
+				os.Exit(exitConfigErr)
+			}
+
 			ctx := context.Background()
 			hasFailure := false
 			hasError := false
@@ -115,6 +125,24 @@ func main() {
 	if err := rootCmd.Execute(); err != nil {
 		os.Exit(exitConfigErr)
 	}
+}
+
+// detectDefaultProject tries to find the default GCP project from environment or gcloud config.
+func detectDefaultProject() string {
+	// 1. Standard env vars
+	for _, env := range []string{"GOOGLE_CLOUD_PROJECT", "GCLOUD_PROJECT", "CLOUDSDK_CORE_PROJECT"} {
+		if v := os.Getenv(env); v != "" {
+			return v
+		}
+	}
+	// 2. gcloud config
+	out, err := exec.Command("gcloud", "config", "get-value", "project").Output()
+	if err == nil {
+		if p := strings.TrimSpace(string(out)); p != "" && p != "(unset)" {
+			return p
+		}
+	}
+	return ""
 }
 
 func splitLast(s, sep string) string {
