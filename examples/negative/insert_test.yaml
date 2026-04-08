@@ -1,0 +1,7 @@
+test_name: insert_rejected
+description: INSERT statements should be rejected
+sql: "INSERT INTO `myproj.dataset.orders` (order_id, user_id, amount) VALUES (1, 10, 100)"
+fixtures: []
+expected:
+  rows:
+    - {order_id: 1}

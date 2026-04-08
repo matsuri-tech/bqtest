@@ -220,6 +220,168 @@ func ExtractAllTableRefs(sql string) ([]TableRef, error) {
 	return allRefs, nil
 }
 
+// SQLKind represents the kind of SQL statement.
+type SQLKind int
+
+const (
+	SQLKindOther         SQLKind = iota // Anything else (zero value)
+	SQLKindSelect                       // Pure SELECT query
+	SQLKindCreateTableAS                // CREATE [OR REPLACE] TABLE ... AS SELECT
+	SQLKindInsert                       // INSERT INTO
+	SQLKindDelete                       // DELETE FROM
+	SQLKindUpdate                       // UPDATE
+	SQLKindMerge                        // MERGE INTO
+	SQLKindDDL                          // Other DDL (CREATE TABLE without AS, DROP, ALTER, etc.)
+)
+
+func (k SQLKind) String() string {
+	switch k {
+	case SQLKindSelect:
+		return "SELECT"
+	case SQLKindCreateTableAS:
+		return "CREATE TABLE AS"
+	case SQLKindInsert:
+		return "INSERT"
+	case SQLKindDelete:
+		return "DELETE"
+	case SQLKindUpdate:
+		return "UPDATE"
+	case SQLKindMerge:
+		return "MERGE"
+	case SQLKindDDL:
+		return "DDL"
+	default:
+		return "OTHER"
+	}
+}
+
+// ClassifySQL returns the kind of the last meaningful statement in the SQL.
+// Scripting statements (DECLARE, SET, etc.) are treated as pass-through
+// so multi-statement scripts are classified by their final executable statement.
+func ClassifySQL(sql string) (SQLKind, error) {
+	opts := newParserOptions()
+	loc := zetasql.NewParseResumeLocation(sql)
+
+	var lastKind SQLKind
+	seen := false
+
+	for {
+		stmt, isEnd, err := zetasql.ParseNextScriptStatement(loc, opts)
+		if err != nil {
+			return SQLKindOther, fmt.Errorf("parse error: %w", err)
+		}
+		if stmt != nil {
+			seen = true
+			kind := classifyNode(stmt)
+			if kind != SQLKindOther {
+				lastKind = kind
+			}
+		}
+		if isEnd {
+			break
+		}
+	}
+
+	if !seen {
+		return SQLKindOther, fmt.Errorf("empty SQL")
+	}
+	return lastKind, nil
+}
+
+func classifyNode(node ast.Node) SQLKind {
+	switch n := node.(type) {
+	case *ast.QueryStatementNode:
+		return SQLKindSelect
+	case *ast.CreateTableStatementNode:
+		if n.Query() != nil {
+			return SQLKindCreateTableAS
+		}
+		return SQLKindDDL
+	case *ast.InsertStatementNode:
+		return SQLKindInsert
+	case *ast.DeleteStatementNode:
+		return SQLKindDelete
+	case *ast.UpdateStatementNode:
+		return SQLKindUpdate
+	case *ast.MergeStatementNode:
+		return SQLKindMerge
+	default:
+		return SQLKindOther
+	}
+}
+
+// StripDDL extracts the inner SELECT from CREATE TABLE AS statements.
+// Returns the original SQL unchanged for pure SELECT queries and scripts.
+// Returns an error for unsupported statement types (INSERT, DELETE, etc.).
+// Parses the SQL only once.
+func StripDDL(sql string) (string, SQLKind, error) {
+	opts := newParserOptions()
+	loc := zetasql.NewParseResumeLocation(sql)
+
+	var lastKind SQLKind
+	var lastStmt ast.Node
+	stmtCount := 0
+
+	for {
+		stmt, isEnd, err := zetasql.ParseNextScriptStatement(loc, opts)
+		if err != nil {
+			return "", SQLKindOther, fmt.Errorf("parse error: %w", err)
+		}
+		if stmt != nil {
+			stmtCount++
+			kind := classifyNode(stmt)
+			if kind != SQLKindOther {
+				lastKind = kind
+				lastStmt = stmt
+			}
+		}
+		if isEnd {
+			break
+		}
+	}
+
+	if stmtCount == 0 {
+		return "", SQLKindOther, fmt.Errorf("empty SQL")
+	}
+
+	switch lastKind {
+	case SQLKindSelect, SQLKindOther:
+		return sql, lastKind, nil
+	case SQLKindCreateTableAS:
+		// Only strip if this is a single statement; for multi-statement scripts
+		// preserve the original SQL to keep preceding statements (DECLARE, etc.)
+		if stmtCount > 1 {
+			return sql, lastKind, nil
+		}
+		createStmt, ok := lastStmt.(*ast.CreateTableStatementNode)
+		if !ok {
+			return "", lastKind, fmt.Errorf("expected CreateTableStatementNode")
+		}
+		query := createStmt.Query()
+		if query == nil {
+			return "", lastKind, fmt.Errorf("CREATE TABLE statement has no AS SELECT clause")
+		}
+		start := int(query.ParseLocationRange().Start().ByteOffset())
+		end := int(query.ParseLocationRange().End().ByteOffset())
+		if start >= 0 && end <= len(sql) && start < end {
+			return sql[start:end], lastKind, nil
+		}
+		return "", lastKind, fmt.Errorf("could not extract SELECT from CREATE TABLE AS")
+	case SQLKindInsert:
+		return "", lastKind, fmt.Errorf("INSERT statements are not supported as test targets")
+	case SQLKindDelete:
+		return "", lastKind, fmt.Errorf("DELETE statements are not supported as test targets")
+	case SQLKindUpdate:
+		return "", lastKind, fmt.Errorf("UPDATE statements are not supported as test targets")
+	case SQLKindMerge:
+		return "", lastKind, fmt.Errorf("MERGE statements are not supported as test targets")
+	case SQLKindDDL:
+		return "", lastKind, fmt.Errorf("DDL statements (without AS SELECT) are not supported as test targets")
+	default:
+		return "", lastKind, fmt.Errorf("unsupported statement type: %s", lastKind)
+	}
+}
+
 func dedup(refs []TableRef) []TableRef {
 	seen := make(map[string]bool)
 	var out []TableRef

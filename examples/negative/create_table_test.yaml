@@ -1,0 +1,7 @@
+test_name: create_table_rejected
+description: Plain CREATE TABLE (without AS SELECT) should be rejected
+sql_file: create_table.sql
+fixtures: []
+expected:
+  rows:
+    - {id: 1}
