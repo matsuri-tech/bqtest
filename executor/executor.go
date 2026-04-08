@@ -8,14 +8,10 @@ import (
 	"google.golang.org/api/iterator"
 )
 
-// TestResult holds the outcome of a test execution.
-type TestResult struct {
-	Success       bool
-	ExtraCount    int64
-	MissingCount  int64
-	ActualCount   int64
-	ExpectedCount int64
-	JobID         string
+// QueryResult holds the rows returned by executing a BigQuery script.
+type QueryResult struct {
+	Rows  []map[string]bigquery.Value
+	JobID string
 }
 
 // Config holds BigQuery execution settings.
@@ -24,8 +20,8 @@ type Config struct {
 	Location  string
 }
 
-// Execute runs the generated BigQuery script and returns the test result.
-func Execute(ctx context.Context, cfg Config, script string) (*TestResult, error) {
+// Execute runs the generated BigQuery script and returns the actual result rows.
+func Execute(ctx context.Context, cfg Config, script string) (*QueryResult, error) {
 	client, err := bigquery.NewClient(ctx, cfg.ProjectID)
 	if err != nil {
 		return nil, fmt.Errorf("creating bigquery client: %w", err)
@@ -52,50 +48,26 @@ func Execute(ctx context.Context, cfg Config, script string) (*TestResult, error
 		return nil, fmt.Errorf("job failed: %w", err)
 	}
 
-	result := &TestResult{
+	result := &QueryResult{
 		JobID: job.ID(),
 	}
 
-	// The last SELECT in the script returns the summary
 	it, err := job.Read(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("reading results: %w", err)
 	}
 
-	var summary map[string]bigquery.Value
 	for {
-		err := it.Next(&summary)
+		var row map[string]bigquery.Value
+		err := it.Next(&row)
 		if err == iterator.Done {
 			break
 		}
 		if err != nil {
-			return nil, fmt.Errorf("reading summary row: %w", err)
+			return nil, fmt.Errorf("reading row: %w", err)
 		}
+		result.Rows = append(result.Rows, row)
 	}
-
-	if summary == nil {
-		return nil, fmt.Errorf("no summary result returned from script")
-	}
-
-	result.ExtraCount = toInt64(summary["extra_count"])
-	result.MissingCount = toInt64(summary["missing_count"])
-	result.ActualCount = toInt64(summary["actual_count"])
-	result.ExpectedCount = toInt64(summary["expected_count"])
-	result.Success = result.ExtraCount == 0 && result.MissingCount == 0
 
 	return result, nil
-}
-
-func toInt64(v bigquery.Value) int64 {
-	if v == nil {
-		return 0
-	}
-	switch val := v.(type) {
-	case int64:
-		return val
-	case float64:
-		return int64(val)
-	default:
-		return 0
-	}
 }

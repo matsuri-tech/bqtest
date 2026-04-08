@@ -6,6 +6,9 @@ import (
 	"io"
 	"os"
 
+	"cloud.google.com/go/bigquery"
+
+	"github.com/matsuri-tech/bqtest/diff"
 	"github.com/matsuri-tech/bqtest/executor"
 	"github.com/matsuri-tech/bqtest/rewriter"
 	"github.com/matsuri-tech/bqtest/script"
@@ -23,16 +26,14 @@ type RunOptions struct {
 
 // RunResult is the outcome of running a single test case.
 type RunResult struct {
-	TestName    string
-	Success     bool
-	ExtraCount  int64
-	MissingCount int64
-	ActualCount int64
-	ExpectedCount int64
-	Script      string
+	TestName     string
+	Success      bool
+	Diff         *diff.Result
+	ActualCount  int
+	Script       string
 	RewrittenSQL string
-	JobID       string
-	Err         error
+	JobID        string
+	Err          error
 }
 
 // Run executes a single test case and returns the result.
@@ -58,7 +59,6 @@ func Run(ctx context.Context, tc *testcase.TestCase, opts RunOptions) *RunResult
 		return result
 	}
 
-	// Check for unresolved tables (passthrough disabled by default)
 	if len(rewriteResult.UnresolvedTables) > 0 && len(passthrough) == 0 {
 		result.Err = fmt.Errorf("source tables without fixtures: %v (add to fixtures or passthrough)", rewriteResult.UnresolvedTables)
 		return result
@@ -94,15 +94,61 @@ func Run(ctx context.Context, tc *testcase.TestCase, opts RunOptions) *RunResult
 		result.Err = fmt.Errorf("execution error: %w", err)
 		return result
 	}
-
-	result.Success = execResult.Success
-	result.ExtraCount = execResult.ExtraCount
-	result.MissingCount = execResult.MissingCount
-	result.ActualCount = execResult.ActualCount
-	result.ExpectedCount = execResult.ExpectedCount
 	result.JobID = execResult.JobID
 
+	// 5. Convert BQ rows to diff.Row
+	actualRows := convertBQRows(execResult.Rows)
+	result.ActualCount = len(actualRows)
+
+	// 6. Compare with expected
+	expectedRows := convertExpectedRows(tc.Expected.Rows)
+	diffResult := diff.Compare(actualRows, expectedRows)
+	result.Diff = diffResult
+	result.Success = diffResult.Match
+
 	return result
+}
+
+// convertBQRows converts BigQuery result rows to diff.Row.
+func convertBQRows(rows []map[string]bigquery.Value) []diff.Row {
+	result := make([]diff.Row, len(rows))
+	for i, row := range rows {
+		r := make(diff.Row)
+		for k, v := range row {
+			r[k] = v
+		}
+		result[i] = r
+	}
+	return result
+}
+
+// convertExpectedRows converts YAML expected rows to diff.Row.
+func convertExpectedRows(rows []map[string]any) []diff.Row {
+	result := make([]diff.Row, 0, len(rows))
+	for _, row := range rows {
+		r := make(diff.Row)
+		for k, v := range row {
+			r[k] = normalizeValue(v)
+		}
+		result = append(result, r)
+	}
+	return result
+}
+
+// normalizeValue converts YAML values to types comparable with BigQuery results.
+// YAML parses numbers as int (small) or float64, BigQuery returns int64.
+func normalizeValue(v any) any {
+	switch val := v.(type) {
+	case int:
+		return int64(val)
+	case float64:
+		if val == float64(int64(val)) {
+			return int64(val)
+		}
+		return val
+	default:
+		return v
+	}
 }
 
 // Report prints the test result.
@@ -118,13 +164,15 @@ func Report(out io.Writer, r *RunResult) {
 	} else {
 		fmt.Fprintf(out, "FAIL  %s\n", r.TestName)
 		fmt.Fprintf(out, "  actual:   %d rows\n", r.ActualCount)
-		fmt.Fprintf(out, "  expected: %d rows\n", r.ExpectedCount)
-		if r.ExtraCount > 0 {
-			fmt.Fprintf(out, "  extra (in actual, not in expected): %d rows\n", r.ExtraCount)
+		fmt.Fprintf(out, "  expected: %d rows\n", len(r.Diff.Missing)+r.ActualCount-len(r.Diff.Extra))
+		if len(r.Diff.Extra) > 0 {
+			fmt.Fprintf(out, "  extra:    %d rows (in actual, not in expected)\n", len(r.Diff.Extra))
 		}
-		if r.MissingCount > 0 {
-			fmt.Fprintf(out, "  missing (in expected, not in actual): %d rows\n", r.MissingCount)
+		if len(r.Diff.Missing) > 0 {
+			fmt.Fprintf(out, "  missing:  %d rows (in expected, not in actual)\n", len(r.Diff.Missing))
 		}
+		fmt.Fprintf(out, "\n")
+		fmt.Fprintf(out, "%s", r.Diff.Format())
 	}
 
 	if r.JobID != "" {

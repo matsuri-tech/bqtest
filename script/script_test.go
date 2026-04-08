@@ -31,29 +31,22 @@ func TestGenerate_Basic(t *testing.T) {
 
 	result := Generate(tc, "SELECT * FROM orders")
 
-	// Should contain fixture TEMP TABLE
+	// Should contain fixture TEMP TABLE with UNNEST
 	if !strings.Contains(result, "CREATE TEMP TABLE orders AS") {
 		t.Errorf("expected fixture temp table, got:\n%s", result)
 	}
-
-	// Should contain expected TEMP TABLE
-	if !strings.Contains(result, "CREATE TEMP TABLE __bqtest_expected AS") {
-		t.Errorf("expected expected temp table, got:\n%s", result)
+	if !strings.Contains(result, "STRUCT(") {
+		t.Errorf("expected STRUCT in fixture, got:\n%s", result)
 	}
 
-	// Should contain actual TEMP TABLE
-	if !strings.Contains(result, "CREATE TEMP TABLE __bqtest_actual AS") {
-		t.Errorf("expected actual temp table, got:\n%s", result)
+	// Should contain the rewritten SQL
+	if !strings.Contains(result, "SELECT * FROM orders;") {
+		t.Errorf("expected rewritten SQL, got:\n%s", result)
 	}
 
-	// Should contain diff queries
-	if !strings.Contains(result, "EXCEPT DISTINCT") {
-		t.Errorf("expected EXCEPT DISTINCT, got:\n%s", result)
-	}
-
-	// Should contain summary query
-	if !strings.Contains(result, "extra_count") {
-		t.Errorf("expected summary query, got:\n%s", result)
+	// Should NOT contain expected temp table or diff queries (moved to Go side)
+	if strings.Contains(result, "__bqtest_expected") {
+		t.Errorf("expected no __bqtest_expected (diff is now Go-side), got:\n%s", result)
 	}
 }
 

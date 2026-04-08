@@ -10,9 +10,7 @@ import (
 
 // Generate builds a BigQuery script that:
 // 1. Creates TEMP TABLEs for fixtures
-// 2. Creates a TEMP TABLE for expected results
-// 3. Executes the rewritten SQL and stores the result as actual
-// 4. Computes diff between actual and expected
+// 2. Executes the rewritten SQL and returns the result
 func Generate(tc *testcase.TestCase, rewrittenSQL string) string {
 	var sb strings.Builder
 
@@ -27,16 +25,8 @@ func Generate(tc *testcase.TestCase, rewrittenSQL string) string {
 		sb.WriteString("\n\n")
 	}
 
-	// 2. Expected TEMP TABLE
-	sb.WriteString(generateExpectedSQL(tc.Expected))
-	sb.WriteString("\n\n")
-
-	// 3. Actual TEMP TABLE from rewritten query
-	fmt.Fprintf(&sb, "CREATE TEMP TABLE __bqtest_actual AS\n%s;\n\n", rewrittenSQL)
-
-	// 4. Diff queries using expected column names for consistent ordering
-	columns := expectedColumns(tc.Expected)
-	sb.WriteString(generateDiffSQL(columns))
+	// 2. Execute rewritten SQL and return results
+	fmt.Fprintf(&sb, "%s;", rewrittenSQL)
 
 	return sb.String()
 }
@@ -48,19 +38,11 @@ func generateFixtureSQL(tempName string, f testcase.Fixture) string {
 	return fmt.Sprintf("CREATE TEMP TABLE %s AS\nSELECT * FROM UNNEST([%s]);", tempName, generateStructArray(f.Rows))
 }
 
-func generateExpectedSQL(expected testcase.Expected) string {
-	if expected.SQL != "" {
-		return fmt.Sprintf("CREATE TEMP TABLE __bqtest_expected AS\n%s;", expected.SQL)
-	}
-	return fmt.Sprintf("CREATE TEMP TABLE __bqtest_expected AS\nSELECT * FROM UNNEST([%s]);", generateStructArray(expected.Rows))
-}
-
 // generateStructArray builds a comma-separated list of STRUCT literals from rows.
 func generateStructArray(rows []map[string]any) string {
 	if len(rows) == 0 {
 		return ""
 	}
-	// Use sorted keys from the first row for consistent column ordering
 	keys := sortedKeys(rows[0])
 
 	var structs []string
@@ -74,25 +56,6 @@ func generateStructArray(rows []map[string]any) string {
 	return "\n  " + strings.Join(structs, ",\n  ") + "\n"
 }
 
-// expectedColumns extracts sorted column names from the expected definition.
-func expectedColumns(expected testcase.Expected) []string {
-	if len(expected.Rows) == 0 {
-		return nil
-	}
-	keySet := make(map[string]bool)
-	for _, row := range expected.Rows {
-		for k := range row {
-			keySet[k] = true
-		}
-	}
-	cols := make([]string, 0, len(keySet))
-	for k := range keySet {
-		cols = append(cols, k)
-	}
-	sort.Strings(cols)
-	return cols
-}
-
 func sortedKeys(row map[string]any) []string {
 	keys := make([]string, 0, len(row))
 	for k := range row {
@@ -100,38 +63,6 @@ func sortedKeys(row map[string]any) []string {
 	}
 	sort.Strings(keys)
 	return keys
-}
-
-func generateDiffSQL(columns []string) string {
-	if len(columns) == 0 {
-		// Fallback: use * (less safe but works for SQL-defined expected)
-		return `SELECT
-  (SELECT COUNT(*) FROM (
-    SELECT * FROM __bqtest_actual EXCEPT DISTINCT SELECT * FROM __bqtest_expected
-  )) AS extra_count,
-  (SELECT COUNT(*) FROM (
-    SELECT * FROM __bqtest_expected EXCEPT DISTINCT SELECT * FROM __bqtest_actual
-  )) AS missing_count,
-  (SELECT COUNT(*) FROM __bqtest_actual) AS actual_count,
-  (SELECT COUNT(*) FROM __bqtest_expected) AS expected_count;`
-	}
-
-	// Use explicit column list to ensure consistent ordering between actual and expected
-	colList := strings.Join(columns, ", ")
-	return fmt.Sprintf(`-- Result summary (using explicit column list for order-independent comparison)
-SELECT
-  (SELECT COUNT(*) FROM (
-    SELECT %s FROM __bqtest_actual
-    EXCEPT DISTINCT
-    SELECT %s FROM __bqtest_expected
-  )) AS extra_count,
-  (SELECT COUNT(*) FROM (
-    SELECT %s FROM __bqtest_expected
-    EXCEPT DISTINCT
-    SELECT %s FROM __bqtest_actual
-  )) AS missing_count,
-  (SELECT COUNT(*) FROM __bqtest_actual) AS actual_count,
-  (SELECT COUNT(*) FROM __bqtest_expected) AS expected_count;`, colList, colList, colList, colList)
 }
 
 func formatValue(v any) string {
