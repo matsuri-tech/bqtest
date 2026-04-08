@@ -16,6 +16,22 @@ BigQuery SQL テストランナー。SQL 内のテーブル参照をテスト用
 
 ## インストール
 
+### バイナリダウンロード
+
+```bash
+# macOS (Apple Silicon)
+curl -sL https://github.com/matsuri-tech/bqtest/releases/latest/download/bqtest-darwin-arm64.tar.gz | tar xz
+mkdir -p ~/.local/bin && mv bqtest-darwin-arm64 ~/.local/bin/bqtest
+
+# Linux (amd64)
+curl -sL https://github.com/matsuri-tech/bqtest/releases/latest/download/bqtest-linux-amd64.tar.gz | tar xz
+mkdir -p ~/.local/bin && mv bqtest-linux-amd64 ~/.local/bin/bqtest
+```
+
+`~/.local/bin` が `PATH` に含まれていることを確認してください。
+
+### ソースから
+
 ```bash
 go install github.com/matsuri-tech/bqtest/cmd/bqtest@latest
 ```
