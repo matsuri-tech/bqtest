@@ -127,6 +127,9 @@ func executeRun(args []string) error {
 		fmt.Fprintln(os.Stderr, "Error: BigQuery project ID is required.\n\nSpecify it with one of:\n  --project <project-id>\n  BQTEST_PROJECT=<project-id>\n  gcloud config set project <project-id>")
 		os.Exit(exitFail)
 	}
+	if location == "" {
+		location = detectDefaultLocation()
+	}
 
 	ctx := context.Background()
 	failed := false
@@ -229,6 +232,39 @@ func detectDefaultProject() string {
 	if err == nil {
 		if p := strings.TrimSpace(string(out)); p != "" && p != "(unset)" {
 			return p
+		}
+	}
+	return ""
+}
+
+// detectDefaultLocation tries to find the default BigQuery location from .bigqueryrc.
+// Falls back to "US" (matching bq CLI default behavior).
+func detectDefaultLocation() string {
+	// 1. .bigqueryrc
+	if loc := readBigqueryrcValue("location"); loc != "" {
+		return loc
+	}
+	// 2. Default to US (same as bq CLI)
+	return "US"
+}
+
+// readBigqueryrcValue reads a value from ~/.bigqueryrc (INI-like format: key = value).
+func readBigqueryrcValue(key string) string {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return ""
+	}
+	data, err := os.ReadFile(home + "/.bigqueryrc")
+	if err != nil {
+		return ""
+	}
+	for _, line := range strings.Split(string(data), "\n") {
+		line = strings.TrimSpace(line)
+		if strings.HasPrefix(line, key) {
+			parts := strings.SplitN(line, "=", 2)
+			if len(parts) == 2 && strings.TrimSpace(parts[0]) == key {
+				return strings.TrimSpace(parts[1])
+			}
 		}
 	}
 	return ""
