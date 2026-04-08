@@ -36,8 +36,8 @@ jobs:
       - name: Build
         env:
           CGO_ENABLED: 1
-          CC: ${{ runner.os == 'Linux' && 'clang' || 'clang' }}
-          CXX: ${{ runner.os == 'Linux' && 'clang++' || 'clang++' }}
+          CC: clang
+          CXX: clang++
         run: |
           BINARY_NAME=bqtest-${{ matrix.goos }}-${{ matrix.goarch }}
           go build -o ${BINARY_NAME} ./cmd/bqtest/
