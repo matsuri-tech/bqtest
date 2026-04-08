@@ -14,13 +14,25 @@ import (
 func Generate(tc *testcase.TestCase, rewrittenSQL string) string {
 	var sb strings.Builder
 
+	// Use RewriteMap to get disambiguated temp names and deduplicated fixtures.
+	rewriteMap := tc.RewriteMap()
+
+	// Track which temp names have already been emitted to handle dedup
+	// (RewriteMap deduplicates fixtures that refer to the same table).
+	emitted := make(map[string]bool)
+
 	// 1. Fixture TEMP TABLEs
 	for _, f := range tc.Fixtures {
-		tempName := f.TempName
-		if tempName == "" {
-			parts := strings.Split(f.Table, ".")
-			tempName = parts[len(parts)-1]
+		tempName, ok := rewriteMap[f.Table]
+		if !ok {
+			// This fixture was deduplicated away by RewriteMap; skip it.
+			continue
 		}
+		if emitted[tempName] {
+			// Already created this temp table (dedup case).
+			continue
+		}
+		emitted[tempName] = true
 		sb.WriteString(generateFixtureSQL(tempName, f))
 		sb.WriteString("\n\n")
 	}

@@ -75,6 +75,68 @@ func TestGenerate_SQLFixture(t *testing.T) {
 	}
 }
 
+func TestGenerate_CollisionUsesRewriteMap(t *testing.T) {
+	tc := &testcase.TestCase{
+		TestName: "collision",
+		SQL:      "SELECT * FROM sumyca_prod__reservation",
+		Fixtures: []testcase.Fixture{
+			{
+				Table: "m2m-core.sumyca_prod.reservation",
+				Rows:  []map[string]any{{"id": 1}},
+			},
+			{
+				Table: "m2m-core.m2m_core_prod.reservation",
+				Rows:  []map[string]any{{"id": 2}},
+			},
+		},
+		Expected: testcase.Expected{
+			Rows: []map[string]any{{"id": 1}},
+		},
+	}
+
+	result := Generate(tc, "SELECT * FROM sumyca_prod__reservation")
+
+	// Should use disambiguated names from RewriteMap, not just "reservation"
+	if !strings.Contains(result, "CREATE TEMP TABLE sumyca_prod__reservation AS") {
+		t.Errorf("expected disambiguated temp name sumyca_prod__reservation, got:\n%s", result)
+	}
+	if !strings.Contains(result, "CREATE TEMP TABLE m2m_core_prod__reservation AS") {
+		t.Errorf("expected disambiguated temp name m2m_core_prod__reservation, got:\n%s", result)
+	}
+	// Should NOT have a bare "CREATE TEMP TABLE reservation AS"
+	if strings.Contains(result, "CREATE TEMP TABLE reservation AS") {
+		t.Errorf("should not have bare 'reservation' temp table, got:\n%s", result)
+	}
+}
+
+func TestGenerate_DedupFixtures(t *testing.T) {
+	tc := &testcase.TestCase{
+		TestName: "dedup",
+		SQL:      "SELECT * FROM reservation_basic",
+		Fixtures: []testcase.Fixture{
+			{
+				Table: "dx_018_reservation.reservation_basic",
+				Rows:  []map[string]any{{"id": 1}},
+			},
+			{
+				Table: "m2m-core.dx_018_reservation.reservation_basic",
+				Rows:  []map[string]any{{"id": 2}},
+			},
+		},
+		Expected: testcase.Expected{
+			Rows: []map[string]any{{"id": 1}},
+		},
+	}
+
+	result := Generate(tc, "SELECT * FROM reservation_basic")
+
+	// Should only create one TEMP TABLE since both refer to the same dataset.table
+	count := strings.Count(result, "CREATE TEMP TABLE")
+	if count != 1 {
+		t.Errorf("expected 1 CREATE TEMP TABLE (dedup), got %d:\n%s", count, result)
+	}
+}
+
 func TestFormatValue(t *testing.T) {
 	tests := []struct {
 		input    any

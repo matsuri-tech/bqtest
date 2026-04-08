@@ -156,6 +156,152 @@ expected:
 	}
 }
 
+func TestRewriteMap_CollisionAutoDisambiguate(t *testing.T) {
+	yaml := `
+test_name: collision_test
+sql: "SELECT 1"
+fixtures:
+  - table: m2m-core.sumyca_prod.reservation
+    rows:
+      - {id: 1}
+  - table: m2m-core.m2m_core_prod.reservation
+    rows:
+      - {id: 2}
+expected:
+  rows:
+    - {id: 1}
+`
+	tc, err := Parse([]byte(yaml))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	m := tc.RewriteMap()
+	name1 := m["m2m-core.sumyca_prod.reservation"]
+	name2 := m["m2m-core.m2m_core_prod.reservation"]
+	if name1 == name2 {
+		t.Errorf("expected different temp names, both got %s", name1)
+	}
+	if name1 != "sumyca_prod__reservation" {
+		t.Errorf("expected sumyca_prod__reservation, got %s", name1)
+	}
+	if name2 != "m2m_core_prod__reservation" {
+		t.Errorf("expected m2m_core_prod__reservation, got %s", name2)
+	}
+}
+
+func TestRewriteMap_CustomTempNameNotOverridden(t *testing.T) {
+	yaml := `
+test_name: custom_temp_test
+sql: "SELECT 1"
+fixtures:
+  - table: m2m-core.sumyca_prod.reservation
+    temp_name: my_reservation
+    rows:
+      - {id: 1}
+  - table: m2m-core.m2m_core_prod.reservation
+    rows:
+      - {id: 2}
+expected:
+  rows:
+    - {id: 1}
+`
+	tc, err := Parse([]byte(yaml))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	m := tc.RewriteMap()
+	if m["m2m-core.sumyca_prod.reservation"] != "my_reservation" {
+		t.Errorf("expected my_reservation, got %s", m["m2m-core.sumyca_prod.reservation"])
+	}
+	// Only one auto-generated name — no collision, so no prefix needed.
+	if m["m2m-core.m2m_core_prod.reservation"] != "reservation" {
+		t.Errorf("expected reservation, got %s", m["m2m-core.m2m_core_prod.reservation"])
+	}
+}
+
+func TestRewriteMap_TwoPartVsThreePartSameTable(t *testing.T) {
+	yaml := `
+test_name: dedup_test
+sql: "SELECT 1"
+fixtures:
+  - table: dx_018_reservation.reservation_basic
+    rows:
+      - {id: 1}
+  - table: m2m-core.dx_018_reservation.reservation_basic
+    rows:
+      - {id: 2}
+expected:
+  rows:
+    - {id: 1}
+`
+	tc, err := Parse([]byte(yaml))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	m := tc.RewriteMap()
+	// Both refer to the same dataset.table — only one entry should appear.
+	// The 2-part key should be in the map (it was first).
+	if len(m) != 1 {
+		t.Errorf("expected 1 entry in rewrite map, got %d: %v", len(m), m)
+	}
+}
+
+func TestRewriteMap_HyphenInDatasetSanitized(t *testing.T) {
+	yaml := `
+test_name: sanitize_test
+sql: "SELECT 1"
+fixtures:
+  - table: proj.my-dataset.orders
+    rows:
+      - {id: 1}
+  - table: proj.other-dataset.orders
+    rows:
+      - {id: 2}
+expected:
+  rows:
+    - {id: 1}
+`
+	tc, err := Parse([]byte(yaml))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	m := tc.RewriteMap()
+	if m["proj.my-dataset.orders"] != "my_dataset__orders" {
+		t.Errorf("expected my_dataset__orders, got %s", m["proj.my-dataset.orders"])
+	}
+	if m["proj.other-dataset.orders"] != "other_dataset__orders" {
+		t.Errorf("expected other_dataset__orders, got %s", m["proj.other-dataset.orders"])
+	}
+}
+
+func TestRewriteMap_NoCollisionNoPrefix(t *testing.T) {
+	yaml := `
+test_name: no_collision_test
+sql: "SELECT 1"
+fixtures:
+  - table: proj.dataset.orders
+    rows:
+      - {id: 1}
+  - table: proj.dataset.users
+    rows:
+      - {id: 2}
+expected:
+  rows:
+    - {id: 1}
+`
+	tc, err := Parse([]byte(yaml))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	m := tc.RewriteMap()
+	if m["proj.dataset.orders"] != "orders" {
+		t.Errorf("expected orders, got %s", m["proj.dataset.orders"])
+	}
+	if m["proj.dataset.users"] != "users" {
+		t.Errorf("expected users, got %s", m["proj.dataset.users"])
+	}
+}
+
 func TestParse_SQLFixture(t *testing.T) {
 	yaml := `
 test_name: sql_fixture_test
