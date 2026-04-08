@@ -45,36 +45,33 @@ func generateFixtureSQL(tempName string, f testcase.Fixture) string {
 	if f.SQL != "" {
 		return fmt.Sprintf("CREATE TEMP TABLE %s AS\n%s;", tempName, f.SQL)
 	}
-
-	if len(f.Rows) == 0 {
-		return fmt.Sprintf("CREATE TEMP TABLE %s AS SELECT * FROM UNNEST([]);", tempName)
-	}
-
-	var selects []string
-	for _, row := range f.Rows {
-		cols := sortedColumns(row)
-		selects = append(selects, fmt.Sprintf("SELECT %s", strings.Join(cols, ", ")))
-	}
-
-	return fmt.Sprintf("CREATE TEMP TABLE %s AS\n%s;", tempName, strings.Join(selects, "\nUNION ALL\n"))
+	return fmt.Sprintf("CREATE TEMP TABLE %s AS\nSELECT * FROM UNNEST([%s]);", tempName, generateStructArray(f.Rows))
 }
 
 func generateExpectedSQL(expected testcase.Expected) string {
 	if expected.SQL != "" {
 		return fmt.Sprintf("CREATE TEMP TABLE __bqtest_expected AS\n%s;", expected.SQL)
 	}
+	return fmt.Sprintf("CREATE TEMP TABLE __bqtest_expected AS\nSELECT * FROM UNNEST([%s]);", generateStructArray(expected.Rows))
+}
 
-	if len(expected.Rows) == 0 {
-		return "CREATE TEMP TABLE __bqtest_expected AS SELECT 1 WHERE FALSE;"
+// generateStructArray builds a comma-separated list of STRUCT literals from rows.
+func generateStructArray(rows []map[string]any) string {
+	if len(rows) == 0 {
+		return ""
 	}
+	// Use sorted keys from the first row for consistent column ordering
+	keys := sortedKeys(rows[0])
 
-	var selects []string
-	for _, row := range expected.Rows {
-		cols := sortedColumns(row)
-		selects = append(selects, fmt.Sprintf("SELECT %s", strings.Join(cols, ", ")))
+	var structs []string
+	for _, row := range rows {
+		var fields []string
+		for _, k := range keys {
+			fields = append(fields, fmt.Sprintf("%s AS %s", formatValue(row[k]), k))
+		}
+		structs = append(structs, fmt.Sprintf("STRUCT(%s)", strings.Join(fields, ", ")))
 	}
-
-	return fmt.Sprintf("CREATE TEMP TABLE __bqtest_expected AS\n%s;", strings.Join(selects, "\nUNION ALL\n"))
+	return "\n  " + strings.Join(structs, ",\n  ") + "\n"
 }
 
 // expectedColumns extracts sorted column names from the expected definition.
@@ -82,18 +79,27 @@ func expectedColumns(expected testcase.Expected) []string {
 	if len(expected.Rows) == 0 {
 		return nil
 	}
-	keys := make(map[string]bool)
+	keySet := make(map[string]bool)
 	for _, row := range expected.Rows {
 		for k := range row {
-			keys[k] = true
+			keySet[k] = true
 		}
 	}
-	cols := make([]string, 0, len(keys))
-	for k := range keys {
+	cols := make([]string, 0, len(keySet))
+	for k := range keySet {
 		cols = append(cols, k)
 	}
 	sort.Strings(cols)
 	return cols
+}
+
+func sortedKeys(row map[string]any) []string {
+	keys := make([]string, 0, len(row))
+	for k := range row {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	return keys
 }
 
 func generateDiffSQL(columns []string) string {
@@ -126,19 +132,6 @@ SELECT
   )) AS missing_count,
   (SELECT COUNT(*) FROM __bqtest_actual) AS actual_count,
   (SELECT COUNT(*) FROM __bqtest_expected) AS expected_count;`, colList, colList, colList, colList)
-}
-
-func sortedColumns(row map[string]any) []string {
-	keys := make([]string, 0, len(row))
-	for k := range row {
-		keys = append(keys, k)
-	}
-	sort.Strings(keys)
-	cols := make([]string, len(keys))
-	for i, k := range keys {
-		cols[i] = fmt.Sprintf("%s AS %s", formatValue(row[k]), k)
-	}
-	return cols
 }
 
 func formatValue(v any) string {
