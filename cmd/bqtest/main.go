@@ -28,6 +28,18 @@ func main() {
 Test BigQuery SQL by replacing table references with test fixtures,
 executing on BigQuery, and comparing results with expected output.
 
+Run Options:
+  --project <id>    BigQuery project ID (default: BQTEST_PROJECT env or gcloud config)
+  --location <loc>  BigQuery location (default: BQTEST_LOCATION env)
+  --debug           Show rewritten SQL and generated BigQuery script
+  --keep-script     Save generated script to <test_name>.bqtest.sql
+
+Exit Codes:
+  0  All tests passed
+  1  One or more tests failed
+  2  Configuration or parsing error
+  3  BigQuery execution error
+
 Examples:
   bqtest run tests/test_1.yaml             # Run a single test
   bqtest run tests/*.yaml                  # Run all tests matching glob
@@ -56,13 +68,7 @@ YAML Test Format:
   # For complex types (STRUCT, ARRAY), use SQL fixtures:
   # fixtures:
   #   - table: myproj.dataset.events
-  #     sql: "SELECT 1 AS id, STRUCT('a' AS key, 1 AS val) AS metadata"
-
-Exit Codes:
-  0  All tests passed
-  1  One or more tests failed
-  2  Configuration or parsing error
-  3  BigQuery execution error`,
+  #     sql: "SELECT 1 AS id, STRUCT('a' AS key, 1 AS val) AS metadata"`,
 	}
 
 	var projectID, location string
