@@ -211,7 +211,7 @@ func TestFormatValue_TypedLiterals(t *testing.T) {
 		{"INT64:123", "CAST(123 AS INT64)"},
 		{"FLOAT64:1.5", "CAST(1.5 AS FLOAT64)"},
 		{"BOOL:true", "CAST(true AS BOOL)"},
-		{"STRING:hello", "CAST(hello AS STRING)"},
+		{"STRING:hello", "CAST('hello' AS STRING)"},
 
 		// Regular strings (no known prefix)
 		{"hello:world", "'hello:world'"},
@@ -220,6 +220,7 @@ func TestFormatValue_TypedLiterals(t *testing.T) {
 
 		// Edge case: value containing single quotes
 		{"DATE:2025-01-01'test", "DATE '2025-01-01\\'test'"},
+		{"STRING:it's a test", "CAST('it\\'s a test' AS STRING)"},
 	}
 	for _, tt := range tests {
 		got := formatValue(tt.input)

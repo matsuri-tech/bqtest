@@ -111,6 +111,10 @@ func formatValue(v any) string {
 				return fmt.Sprintf("%s '%s'", prefix, escaped)
 			}
 			if typedCastPrefixes[prefix] {
+				if prefix == "STRING" {
+					escaped := strings.ReplaceAll(value, "'", "\\'")
+					return fmt.Sprintf("CAST('%s' AS %s)", escaped, prefix)
+				}
 				return fmt.Sprintf("CAST(%s AS %s)", value, prefix)
 			}
 		}
