@@ -51,7 +51,7 @@ Available Commands:
 
 Options:
   --project <id>    BigQuery project ID (default: BQTEST_PROJECT env or gcloud config)
-  --location <loc>  BigQuery location (default: BQTEST_LOCATION env)
+  --location <loc>  BigQuery location (default: BQTEST_LOCATION env or ~/.bigqueryrc)
   --dry-run         Parse and show test details without executing on BigQuery
   --debug           Show rewritten SQL and generated BigQuery script
   --keep-script     Save generated script to <test_name>.bqtest.sql
@@ -129,6 +129,10 @@ func executeRun(args []string) error {
 	}
 	if location == "" {
 		location = detectDefaultLocation()
+	}
+	if location == "" {
+		fmt.Fprintln(os.Stderr, "Error: BigQuery location is required.\n\nSpecify it with one of:\n  --location <location>\n  BQTEST_LOCATION=<location>\n  Add '--location=<location>' to ~/.bigqueryrc")
+		os.Exit(exitFail)
 	}
 
 	ctx := context.Background()
@@ -238,17 +242,12 @@ func detectDefaultProject() string {
 }
 
 // detectDefaultLocation tries to find the default BigQuery location from .bigqueryrc.
-// Falls back to "US" (matching bq CLI default behavior).
 func detectDefaultLocation() string {
-	// 1. .bigqueryrc
-	if loc := readBigqueryrcValue("location"); loc != "" {
-		return loc
-	}
-	// 2. Default to US (same as bq CLI)
-	return "US"
+	return readBigqueryrcValue("location")
 }
 
-// readBigqueryrcValue reads a value from ~/.bigqueryrc (INI-like format: key = value).
+// readBigqueryrcValue reads a flag value from ~/.bigqueryrc.
+// The bq CLI stores flags as "--key=value" or "--key = value".
 func readBigqueryrcValue(key string) string {
 	home, err := os.UserHomeDir()
 	if err != nil {
@@ -258,8 +257,19 @@ func readBigqueryrcValue(key string) string {
 	if err != nil {
 		return ""
 	}
+	prefix := "--" + key
 	for _, line := range strings.Split(string(data), "\n") {
 		line = strings.TrimSpace(line)
+		if strings.HasPrefix(line, prefix) {
+			rest := line[len(prefix):]
+			if len(rest) == 0 {
+				continue
+			}
+			if rest[0] == '=' {
+				return strings.TrimSpace(rest[1:])
+			}
+		}
+		// Also support bare "key = value" format
 		if strings.HasPrefix(line, key) {
 			parts := strings.SplitN(line, "=", 2)
 			if len(parts) == 2 && strings.TrimSpace(parts[0]) == key {
