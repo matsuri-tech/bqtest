@@ -1,6 +1,7 @@
 package parser
 
 import (
+	"strings"
 	"testing"
 )
 
@@ -129,5 +130,79 @@ func TestExtractTables_Offsets(t *testing.T) {
 	ref := result.SourceTables[0]
 	if ref.StartOffset == 0 && ref.EndOffset == 0 {
 		t.Errorf("expected non-zero offsets, got start=%d end=%d", ref.StartOffset, ref.EndOffset)
+	}
+}
+
+func TestClassifySQL(t *testing.T) {
+	tests := []struct {
+		name string
+		sql  string
+		want SQLKind
+	}{
+		{"SELECT", "SELECT 1", SQLKindSelect},
+		{"SELECT FROM", "SELECT * FROM `p.d.t`", SQLKindSelect},
+		{"CREATE TABLE AS", "CREATE OR REPLACE TABLE `p.d.t` AS SELECT 1", SQLKindCreateTableAS},
+		{"INSERT", "INSERT INTO `p.d.t` (id) VALUES (1)", SQLKindInsert},
+		{"DELETE", "DELETE FROM `p.d.t` WHERE id = 1", SQLKindDelete},
+		{"UPDATE", "UPDATE `p.d.t` SET x = 1 WHERE id = 1", SQLKindUpdate},
+		{"MERGE", "MERGE `p.d.t` T USING `p.d.s` S ON T.id = S.id WHEN MATCHED THEN UPDATE SET T.x = S.x", SQLKindMerge},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := ClassifySQL(tt.sql)
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if got != tt.want {
+				t.Errorf("ClassifySQL() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestStripDDL_Select(t *testing.T) {
+	sql := "SELECT * FROM `p.d.t`"
+	got, kind, err := StripDDL(sql)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if kind != SQLKindSelect {
+		t.Errorf("expected SELECT, got %v", kind)
+	}
+	if got != sql {
+		t.Errorf("expected unchanged SQL, got %q", got)
+	}
+}
+
+func TestStripDDL_CreateTableAS(t *testing.T) {
+	sql := "CREATE OR REPLACE TABLE `p.d.output` AS SELECT user_id, SUM(amount) FROM `p.d.orders` GROUP BY user_id"
+	got, kind, err := StripDDL(sql)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if kind != SQLKindCreateTableAS {
+		t.Errorf("expected CREATE TABLE AS, got %v", kind)
+	}
+	if !strings.Contains(got, "SELECT") {
+		t.Errorf("expected SELECT in result, got %q", got)
+	}
+	if strings.Contains(got, "CREATE") {
+		t.Errorf("expected no CREATE in result, got %q", got)
+	}
+}
+
+func TestStripDDL_RejectsInsert(t *testing.T) {
+	sql := "INSERT INTO `p.d.t` (id) VALUES (1)"
+	_, _, err := StripDDL(sql)
+	if err == nil {
+		t.Error("expected error for INSERT")
+	}
+}
+
+func TestStripDDL_RejectsDelete(t *testing.T) {
+	sql := "DELETE FROM `p.d.t` WHERE id = 1"
+	_, _, err := StripDDL(sql)
+	if err == nil {
+		t.Error("expected error for DELETE")
 	}
 }

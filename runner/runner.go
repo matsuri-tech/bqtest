@@ -10,6 +10,7 @@ import (
 
 	"github.com/matsuri-tech/bqtest/diff"
 	"github.com/matsuri-tech/bqtest/executor"
+	"github.com/matsuri-tech/bqtest/parser"
 	"github.com/matsuri-tech/bqtest/rewriter"
 	"github.com/matsuri-tech/bqtest/script"
 	"github.com/matsuri-tech/bqtest/testcase"
@@ -45,15 +46,25 @@ func Run(ctx context.Context, tc *testcase.TestCase, opts RunOptions) *RunResult
 
 	result := &RunResult{TestName: tc.TestName}
 
-	// 1. Build rewrite map and passthrough set
+	// 1. Strip DDL wrapper (CREATE TABLE AS -> SELECT)
+	sql, kind, err := parser.StripDDL(tc.SQL)
+	if err != nil {
+		result.Err = fmt.Errorf("unsupported SQL: %w", err)
+		return result
+	}
+	if kind == parser.SQLKindCreateTableAS {
+		fmt.Fprintf(out, "  note: stripped CREATE TABLE AS wrapper, testing inner SELECT\n")
+	}
+
+	// 2. Build rewrite map and passthrough set
 	rewriteMap := tc.RewriteMap()
 	passthrough := make(map[string]bool)
 	for _, p := range tc.Passthrough {
 		passthrough[p] = true
 	}
 
-	// 2. Rewrite SQL
-	rewriteResult, err := rewriter.Rewrite(tc.SQL, rewriteMap, passthrough)
+	// 3. Rewrite SQL
+	rewriteResult, err := rewriter.Rewrite(sql, rewriteMap, passthrough)
 	if err != nil {
 		result.Err = fmt.Errorf("rewrite error: %w", err)
 		return result

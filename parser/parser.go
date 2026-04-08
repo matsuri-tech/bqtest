@@ -220,6 +220,138 @@ func ExtractAllTableRefs(sql string) ([]TableRef, error) {
 	return allRefs, nil
 }
 
+// SQLKind represents the kind of SQL statement.
+type SQLKind int
+
+const (
+	SQLKindSelect        SQLKind = iota // Pure SELECT query
+	SQLKindCreateTableAS                // CREATE [OR REPLACE] TABLE ... AS SELECT
+	SQLKindInsert                       // INSERT INTO
+	SQLKindDelete                       // DELETE FROM
+	SQLKindUpdate                       // UPDATE
+	SQLKindMerge                        // MERGE INTO
+	SQLKindDDL                          // Other DDL (CREATE TABLE without AS, DROP, ALTER, etc.)
+	SQLKindOther                        // Anything else
+)
+
+func (k SQLKind) String() string {
+	switch k {
+	case SQLKindSelect:
+		return "SELECT"
+	case SQLKindCreateTableAS:
+		return "CREATE TABLE AS"
+	case SQLKindInsert:
+		return "INSERT"
+	case SQLKindDelete:
+		return "DELETE"
+	case SQLKindUpdate:
+		return "UPDATE"
+	case SQLKindMerge:
+		return "MERGE"
+	case SQLKindDDL:
+		return "DDL"
+	default:
+		return "OTHER"
+	}
+}
+
+// ClassifySQL returns the kind of the first statement in the SQL.
+func ClassifySQL(sql string) (SQLKind, error) {
+	opts := newParserOptions()
+	loc := zetasql.NewParseResumeLocation(sql)
+	stmt, _, err := zetasql.ParseNextScriptStatement(loc, opts)
+	if err != nil {
+		return SQLKindOther, fmt.Errorf("parse error: %w", err)
+	}
+	if stmt == nil {
+		return SQLKindOther, fmt.Errorf("empty SQL")
+	}
+	return classifyNode(stmt), nil
+}
+
+func classifyNode(node ast.Node) SQLKind {
+	switch n := node.(type) {
+	case *ast.QueryStatementNode:
+		return SQLKindSelect
+	case *ast.CreateTableStatementNode:
+		if n.Query() != nil {
+			return SQLKindCreateTableAS
+		}
+		return SQLKindDDL
+	case *ast.InsertStatementNode:
+		return SQLKindInsert
+	case *ast.DeleteStatementNode:
+		return SQLKindDelete
+	case *ast.UpdateStatementNode:
+		return SQLKindUpdate
+	case *ast.MergeStatementNode:
+		return SQLKindMerge
+	default:
+		return SQLKindOther
+	}
+}
+
+// StripDDL extracts the inner SELECT from CREATE TABLE AS statements.
+// Returns the original SQL unchanged for pure SELECT queries.
+// Returns an error for unsupported statement types (INSERT, DELETE, etc.).
+func StripDDL(sql string) (string, SQLKind, error) {
+	kind, err := ClassifySQL(sql)
+	if err != nil {
+		return "", SQLKindOther, err
+	}
+
+	switch kind {
+	case SQLKindSelect:
+		return sql, kind, nil
+	case SQLKindCreateTableAS:
+		stripped, err := extractSelectFromCreateTableAS(sql)
+		if err != nil {
+			return "", kind, err
+		}
+		return stripped, kind, nil
+	case SQLKindInsert:
+		return "", kind, fmt.Errorf("INSERT statements are not supported as test targets")
+	case SQLKindDelete:
+		return "", kind, fmt.Errorf("DELETE statements are not supported as test targets")
+	case SQLKindUpdate:
+		return "", kind, fmt.Errorf("UPDATE statements are not supported as test targets")
+	case SQLKindMerge:
+		return "", kind, fmt.Errorf("MERGE statements are not supported as test targets")
+	case SQLKindDDL:
+		return "", kind, fmt.Errorf("DDL statements (without AS SELECT) are not supported as test targets")
+	default:
+		return "", kind, fmt.Errorf("unsupported statement type: %s", kind)
+	}
+}
+
+func extractSelectFromCreateTableAS(sql string) (string, error) {
+	opts := newParserOptions()
+	loc := zetasql.NewParseResumeLocation(sql)
+	stmt, _, err := zetasql.ParseNextScriptStatement(loc, opts)
+	if err != nil {
+		return "", err
+	}
+
+	createStmt, ok := stmt.(*ast.CreateTableStatementNode)
+	if !ok {
+		return "", fmt.Errorf("expected CreateTableStatementNode")
+	}
+
+	query := createStmt.Query()
+	if query == nil {
+		return "", fmt.Errorf("CREATE TABLE statement has no AS SELECT clause")
+	}
+
+	// Extract the SELECT portion using byte offsets from the AST
+	start := int(query.ParseLocationRange().Start().ByteOffset())
+	end := int(query.ParseLocationRange().End().ByteOffset())
+	if start >= 0 && end <= len(sql) && start < end {
+		return sql[start:end], nil
+	}
+
+	return "", fmt.Errorf("could not extract SELECT from CREATE TABLE AS")
+}
+
 func dedup(refs []TableRef) []TableRef {
 	seen := make(map[string]bool)
 	var out []TableRef
