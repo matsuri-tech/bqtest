@@ -28,8 +28,9 @@ func Execute(ctx context.Context, cfg Config, script string) (*QueryResult, erro
 	}
 	defer client.Close()
 
-	if cfg.Location != "" {
-		client.Location = cfg.Location
+	client.Location = cfg.Location
+	if client.Location == "" {
+		client.Location = "US"
 	}
 
 	q := client.Query(script)
