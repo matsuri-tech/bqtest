@@ -19,13 +19,15 @@ BigQuery SQL test runner. Replaces table references in SQL with test fixtures, e
 ### Download binary
 
 ```bash
+mkdir -p ~/.local/bin
+
 # macOS (Apple Silicon)
-curl -sL https://github.com/matsuri-tech/bqtest/releases/latest/download/bqtest-darwin-arm64.tar.gz | tar xz
-mkdir -p ~/.local/bin && mv bqtest-darwin-arm64 ~/.local/bin/bqtest
+curl -sL -o ~/.local/bin/bqtest https://github.com/matsuri-tech/bqtest/releases/latest/download/bqtest-darwin-arm64
+chmod +x ~/.local/bin/bqtest
 
 # Linux (amd64)
-curl -sL https://github.com/matsuri-tech/bqtest/releases/latest/download/bqtest-linux-amd64.tar.gz | tar xz
-mkdir -p ~/.local/bin && mv bqtest-linux-amd64 ~/.local/bin/bqtest
+curl -sL -o ~/.local/bin/bqtest https://github.com/matsuri-tech/bqtest/releases/latest/download/bqtest-linux-amd64
+chmod +x ~/.local/bin/bqtest
 ```
 
 Make sure `~/.local/bin` is in your `PATH`.
