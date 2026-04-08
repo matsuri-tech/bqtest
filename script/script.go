@@ -45,9 +45,9 @@ func Generate(tc *testcase.TestCase, rewrittenSQL string) string {
 
 func generateFixtureSQL(tempName string, f testcase.Fixture) string {
 	if f.SQL != "" {
-		return fmt.Sprintf("CREATE TEMP TABLE %s AS\n%s;", tempName, f.SQL)
+		return fmt.Sprintf("CREATE TEMP TABLE `%s` AS\n%s;", tempName, f.SQL)
 	}
-	return fmt.Sprintf("CREATE TEMP TABLE %s AS\nSELECT * FROM UNNEST([%s]);", tempName, generateStructArray(f.Rows))
+	return fmt.Sprintf("CREATE TEMP TABLE `%s` AS\nSELECT * FROM UNNEST([%s]);", tempName, generateStructArray(f.Rows))
 }
 
 // generateStructArray builds a comma-separated list of STRUCT literals from rows.
