@@ -35,6 +35,9 @@ func Rewrite(sql string, rewriteMap map[string]string, passthrough map[string]bo
 		RewrittenTables: make(map[string]string),
 	}
 
+	// Collect project prefixes from 3-part keys in rewriteMap for fallback matching
+	projectPrefixes := collectProjectPrefixes(rewriteMap)
+
 	// We need all occurrences (not deduped) to get correct offsets.
 	// Re-extract with offsets by parsing again and collecting all refs.
 	allRefs, err := extractAllRefs(sql)
@@ -47,7 +50,7 @@ func Rewrite(sql string, rewriteMap map[string]string, passthrough map[string]bo
 		if !ref.IsSource {
 			continue
 		}
-		tempName, hasFixture := rewriteMap[ref.Path]
+		tempName, hasFixture := resolveRef(ref.Path, rewriteMap, projectPrefixes)
 		if hasFixture {
 			replacements = append(replacements, replacement{
 				start:   ref.StartOffset,
@@ -105,9 +108,11 @@ func ValidateRewrite(sql string, rewriteMap map[string]string, passthrough map[s
 		return err
 	}
 
+	projectPrefixes := collectProjectPrefixes(rewriteMap)
+
 	var missing []string
 	for _, ref := range parseResult.SourceTables {
-		if _, hasFixture := rewriteMap[ref.Path]; hasFixture {
+		if _, found := resolveRef(ref.Path, rewriteMap, projectPrefixes); found {
 			continue
 		}
 		if passthrough[ref.Path] {
@@ -120,4 +125,41 @@ func ValidateRewrite(sql string, rewriteMap map[string]string, passthrough map[s
 		return fmt.Errorf("source tables without fixtures or passthrough: %s", strings.Join(missing, ", "))
 	}
 	return nil
+}
+
+// collectProjectPrefixes extracts unique project prefixes from 3-part keys in the map.
+func collectProjectPrefixes(rewriteMap map[string]string) []string {
+	seen := make(map[string]bool)
+	for key := range rewriteMap {
+		parts := strings.SplitN(key, ".", 3)
+		if len(parts) == 3 && !seen[parts[0]] {
+			seen[parts[0]] = true
+		}
+	}
+	prefixes := make([]string, 0, len(seen))
+	for p := range seen {
+		prefixes = append(prefixes, p)
+	}
+	sort.Strings(prefixes)
+	return prefixes
+}
+
+// resolveRef looks up a table reference in the rewriteMap.
+// If the ref is 2-part (dataset.table) and not found directly, it tries
+// prepending each known project prefix to form a 3-part key.
+func resolveRef(path string, rewriteMap map[string]string, projectPrefixes []string) (string, bool) {
+	if tempName, ok := rewriteMap[path]; ok {
+		return tempName, true
+	}
+	// Only try fallback for 2-part refs
+	parts := strings.SplitN(path, ".", 3)
+	if len(parts) == 2 {
+		for _, proj := range projectPrefixes {
+			candidate := proj + "." + path
+			if tempName, ok := rewriteMap[candidate]; ok {
+				return tempName, true
+			}
+		}
+	}
+	return "", false
 }

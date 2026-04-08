@@ -94,6 +94,85 @@ func TestRewrite_WithCTE(t *testing.T) {
 	}
 }
 
+func TestRewrite_TwoPartRefMatchesThreePartFixture(t *testing.T) {
+	sql := "SELECT * FROM `dx_018_reservation.reservation_basic` WHERE id = 1"
+	rewriteMap := map[string]string{
+		"m2m-core.dx_018_reservation.reservation_basic": "reservation_basic",
+	}
+	result, err := Rewrite(sql, rewriteMap, nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	expected := "SELECT * FROM reservation_basic WHERE id = 1"
+	if result.SQL != expected {
+		t.Errorf("expected:\n  %s\ngot:\n  %s", expected, result.SQL)
+	}
+	if result.RewrittenTables["dx_018_reservation.reservation_basic"] != "reservation_basic" {
+		t.Errorf("expected rewrite map entry for 2-part ref, got %v", result.RewrittenTables)
+	}
+	if len(result.UnresolvedTables) != 0 {
+		t.Errorf("expected no unresolved tables, got %v", result.UnresolvedTables)
+	}
+}
+
+func TestRewrite_TwoPartRefWithMultipleProjects(t *testing.T) {
+	sql := "SELECT * FROM `dataset.orders` o JOIN `dataset.users` u ON o.user_id = u.id"
+	rewriteMap := map[string]string{
+		"projA.dataset.orders": "orders",
+		"projB.dataset.users":  "users",
+	}
+	result, err := Rewrite(sql, rewriteMap, nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !strings.Contains(result.SQL, "FROM orders o") {
+		t.Errorf("expected orders replacement, got: %s", result.SQL)
+	}
+	if !strings.Contains(result.SQL, "JOIN users u") {
+		t.Errorf("expected users replacement, got: %s", result.SQL)
+	}
+}
+
+func TestRewrite_ThreePartRefStillWorks(t *testing.T) {
+	// Ensure 3-part refs still work as before (no regression)
+	sql := "SELECT * FROM `myproj.dataset.orders` WHERE amount > 100"
+	rewriteMap := map[string]string{
+		"myproj.dataset.orders": "orders",
+	}
+	result, err := Rewrite(sql, rewriteMap, nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	expected := "SELECT * FROM orders WHERE amount > 100"
+	if result.SQL != expected {
+		t.Errorf("expected:\n  %s\ngot:\n  %s", expected, result.SQL)
+	}
+}
+
+func TestRewrite_TwoPartRefUnresolvedWhenNoProjectMatch(t *testing.T) {
+	sql := "SELECT * FROM `dataset.unknown_table`"
+	rewriteMap := map[string]string{
+		"myproj.dataset.orders": "orders",
+	}
+	result, err := Rewrite(sql, rewriteMap, nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(result.UnresolvedTables) != 1 || result.UnresolvedTables[0] != "dataset.unknown_table" {
+		t.Errorf("expected unresolved dataset.unknown_table, got %v", result.UnresolvedTables)
+	}
+}
+
+func TestValidateRewrite_TwoPartRefMatchesThreePartFixture(t *testing.T) {
+	sql := "SELECT * FROM `dx_018_reservation.reservation_basic`"
+	rewriteMap := map[string]string{
+		"m2m-core.dx_018_reservation.reservation_basic": "reservation_basic",
+	}
+	if err := ValidateRewrite(sql, rewriteMap, nil); err != nil {
+		t.Errorf("unexpected error: %v", err)
+	}
+}
+
 func TestValidateRewrite_Success(t *testing.T) {
 	sql := "SELECT * FROM `myproj.dataset.orders`"
 	rewriteMap := map[string]string{
