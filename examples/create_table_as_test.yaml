@@ -1,0 +1,13 @@
+test_name: create_table_as_strip
+description: CREATE OR REPLACE TABLE AS is automatically stripped to inner SELECT
+sql_file: create_table_as.sql
+fixtures:
+  - table: myproj.dataset.orders
+    rows:
+      - {order_id: 1, user_id: 10, amount: 100}
+      - {order_id: 2, user_id: 10, amount: 200}
+      - {order_id: 3, user_id: 20, amount: 50}
+expected:
+  rows:
+    - {user_id: 10, total_amount: 300}
+    - {user_id: 20, total_amount: 50}
