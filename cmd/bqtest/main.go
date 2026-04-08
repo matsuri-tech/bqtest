@@ -57,10 +57,6 @@ Options:
   --keep-script     Save generated script to <test_name>.bqtest.sql
   -h, --help        Show this help
 
-Exit Codes:
-  0  All tests passed
-  1  Failure (test failure, configuration error, or execution error)
-
 Examples:
   bqtest tests/test_1.yaml                 # Run a single test
   bqtest tests/*.yaml                      # Run all tests matching glob
