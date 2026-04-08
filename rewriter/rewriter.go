@@ -55,7 +55,7 @@ func Rewrite(sql string, rewriteMap map[string]string, passthrough map[string]bo
 			replacements = append(replacements, replacement{
 				start:   ref.StartOffset,
 				end:     ref.EndOffset,
-				newText: tempName,
+				newText: "`" + tempName + "`",
 			})
 			result.RewrittenTables[ref.Path] = tempName
 		} else if !passthrough[ref.Path] && !seen[ref.Path] {

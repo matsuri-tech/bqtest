@@ -31,8 +31,8 @@ func TestGenerate_Basic(t *testing.T) {
 
 	result := Generate(tc, "SELECT * FROM orders")
 
-	// Should contain fixture TEMP TABLE with UNNEST
-	if !strings.Contains(result, "CREATE TEMP TABLE orders AS") {
+	// Should contain fixture TEMP TABLE with UNNEST (backtick-quoted)
+	if !strings.Contains(result, "CREATE TEMP TABLE `orders` AS") {
 		t.Errorf("expected fixture temp table, got:\n%s", result)
 	}
 	if !strings.Contains(result, "STRUCT(") {
@@ -70,7 +70,7 @@ func TestGenerate_SQLFixture(t *testing.T) {
 
 	result := Generate(tc, "SELECT * FROM orders")
 
-	if !strings.Contains(result, "CREATE TEMP TABLE orders AS\nSELECT 1 AS order_id, 100 AS amount;") {
+	if !strings.Contains(result, "CREATE TEMP TABLE `orders` AS\nSELECT 1 AS order_id, 100 AS amount;") {
 		t.Errorf("expected SQL fixture, got:\n%s", result)
 	}
 }
@@ -97,14 +97,14 @@ func TestGenerate_CollisionUsesRewriteMap(t *testing.T) {
 	result := Generate(tc, "SELECT * FROM sumyca_prod__reservation")
 
 	// Should use disambiguated names from RewriteMap, not just "reservation"
-	if !strings.Contains(result, "CREATE TEMP TABLE sumyca_prod__reservation AS") {
+	if !strings.Contains(result, "CREATE TEMP TABLE `sumyca_prod__reservation` AS") {
 		t.Errorf("expected disambiguated temp name sumyca_prod__reservation, got:\n%s", result)
 	}
-	if !strings.Contains(result, "CREATE TEMP TABLE m2m_core_prod__reservation AS") {
+	if !strings.Contains(result, "CREATE TEMP TABLE `m2m_core_prod__reservation` AS") {
 		t.Errorf("expected disambiguated temp name m2m_core_prod__reservation, got:\n%s", result)
 	}
 	// Should NOT have a bare "CREATE TEMP TABLE reservation AS"
-	if strings.Contains(result, "CREATE TEMP TABLE reservation AS") {
+	if strings.Contains(result, "CREATE TEMP TABLE `reservation` AS") {
 		t.Errorf("should not have bare 'reservation' temp table, got:\n%s", result)
 	}
 }
@@ -134,6 +134,38 @@ func TestGenerate_DedupFixtures(t *testing.T) {
 	count := strings.Count(result, "CREATE TEMP TABLE")
 	if count != 1 {
 		t.Errorf("expected 1 CREATE TEMP TABLE (dedup), got %d:\n%s", count, result)
+	}
+}
+
+func TestGenerate_ReservedWordTableName(t *testing.T) {
+	tc := &testcase.TestCase{
+		TestName: "reserved_word",
+		SQL:      "SELECT * FROM `case`",
+		Fixtures: []testcase.Fixture{
+			{
+				Table:    "m2m-core.rm_hozin_case.case",
+				TempName: "case",
+				Rows: []map[string]any{
+					{"id": 1, "name": "test"},
+				},
+			},
+		},
+		Expected: testcase.Expected{
+			Rows: []map[string]any{
+				{"id": 1, "name": "test"},
+			},
+		},
+	}
+
+	result := Generate(tc, "SELECT * FROM `case`")
+
+	// temp table name must be backtick-quoted to avoid reserved word conflict
+	if !strings.Contains(result, "CREATE TEMP TABLE `case` AS") {
+		t.Errorf("expected backtick-quoted temp table for reserved word, got:\n%s", result)
+	}
+	// The rewritten SQL should also use backtick-quoted temp name
+	if !strings.Contains(result, "SELECT * FROM `case`;") {
+		t.Errorf("expected backtick-quoted reference in rewritten SQL, got:\n%s", result)
 	}
 }
 

@@ -14,7 +14,7 @@ func TestRewrite_SimpleSelect(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	expected := "SELECT * FROM orders WHERE amount > 100"
+	expected := "SELECT * FROM `orders` WHERE amount > 100"
 	if result.SQL != expected {
 		t.Errorf("expected:\n  %s\ngot:\n  %s", expected, result.SQL)
 	}
@@ -33,10 +33,10 @@ func TestRewrite_MultipleTableJoin(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if !strings.Contains(result.SQL, "FROM orders o") {
+	if !strings.Contains(result.SQL, "FROM `orders` o") {
 		t.Errorf("expected orders replacement, got: %s", result.SQL)
 	}
-	if !strings.Contains(result.SQL, "JOIN users u") {
+	if !strings.Contains(result.SQL, "JOIN `users` u") {
 		t.Errorf("expected users replacement, got: %s", result.SQL)
 	}
 }
@@ -53,7 +53,7 @@ func TestRewrite_PartialRewrite(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if !strings.Contains(result.SQL, "FROM orders o") {
+	if !strings.Contains(result.SQL, "FROM `orders` o") {
 		t.Errorf("expected orders replacement, got: %s", result.SQL)
 	}
 	// users should remain unchanged
@@ -85,7 +85,7 @@ func TestRewrite_WithCTE(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if !strings.Contains(result.SQL, "FROM orders") {
+	if !strings.Contains(result.SQL, "FROM `orders`") {
 		t.Errorf("expected orders replacement, got: %s", result.SQL)
 	}
 	// CTE reference should remain
@@ -103,7 +103,7 @@ func TestRewrite_TwoPartRefMatchesThreePartFixture(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	expected := "SELECT * FROM reservation_basic WHERE id = 1"
+	expected := "SELECT * FROM `reservation_basic` WHERE id = 1"
 	if result.SQL != expected {
 		t.Errorf("expected:\n  %s\ngot:\n  %s", expected, result.SQL)
 	}
@@ -125,10 +125,10 @@ func TestRewrite_TwoPartRefWithMultipleProjects(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if !strings.Contains(result.SQL, "FROM orders o") {
+	if !strings.Contains(result.SQL, "FROM `orders` o") {
 		t.Errorf("expected orders replacement, got: %s", result.SQL)
 	}
-	if !strings.Contains(result.SQL, "JOIN users u") {
+	if !strings.Contains(result.SQL, "JOIN `users` u") {
 		t.Errorf("expected users replacement, got: %s", result.SQL)
 	}
 }
@@ -143,7 +143,7 @@ func TestRewrite_ThreePartRefStillWorks(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	expected := "SELECT * FROM orders WHERE amount > 100"
+	expected := "SELECT * FROM `orders` WHERE amount > 100"
 	if result.SQL != expected {
 		t.Errorf("expected:\n  %s\ngot:\n  %s", expected, result.SQL)
 	}
@@ -160,6 +160,22 @@ func TestRewrite_TwoPartRefUnresolvedWhenNoProjectMatch(t *testing.T) {
 	}
 	if len(result.UnresolvedTables) != 1 || result.UnresolvedTables[0] != "dataset.unknown_table" {
 		t.Errorf("expected unresolved dataset.unknown_table, got %v", result.UnresolvedTables)
+	}
+}
+
+func TestRewrite_ReservedWordTableName(t *testing.T) {
+	sql := "SELECT * FROM `m2m-core.rm_hozin_case.case` WHERE id = 1"
+	rewriteMap := map[string]string{
+		"m2m-core.rm_hozin_case.case": "case",
+	}
+	result, err := Rewrite(sql, rewriteMap, nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	// "case" is a reserved word; temp name must be backtick-quoted
+	expected := "SELECT * FROM `case` WHERE id = 1"
+	if result.SQL != expected {
+		t.Errorf("expected:\n  %s\ngot:\n  %s", expected, result.SQL)
 	}
 }
 
