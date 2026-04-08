@@ -224,14 +224,14 @@ func ExtractAllTableRefs(sql string) ([]TableRef, error) {
 type SQLKind int
 
 const (
-	SQLKindSelect        SQLKind = iota // Pure SELECT query
+	SQLKindOther         SQLKind = iota // Anything else (zero value)
+	SQLKindSelect                       // Pure SELECT query
 	SQLKindCreateTableAS                // CREATE [OR REPLACE] TABLE ... AS SELECT
 	SQLKindInsert                       // INSERT INTO
 	SQLKindDelete                       // DELETE FROM
 	SQLKindUpdate                       // UPDATE
 	SQLKindMerge                        // MERGE INTO
 	SQLKindDDL                          // Other DDL (CREATE TABLE without AS, DROP, ALTER, etc.)
-	SQLKindOther                        // Anything else
 )
 
 func (k SQLKind) String() string {
@@ -320,7 +320,7 @@ func StripDDL(sql string) (string, SQLKind, error) {
 
 	var lastKind SQLKind
 	var lastStmt ast.Node
-	seen := false
+	stmtCount := 0
 
 	for {
 		stmt, isEnd, err := zetasql.ParseNextScriptStatement(loc, opts)
@@ -328,7 +328,7 @@ func StripDDL(sql string) (string, SQLKind, error) {
 			return "", SQLKindOther, fmt.Errorf("parse error: %w", err)
 		}
 		if stmt != nil {
-			seen = true
+			stmtCount++
 			kind := classifyNode(stmt)
 			if kind != SQLKindOther {
 				lastKind = kind
@@ -340,7 +340,7 @@ func StripDDL(sql string) (string, SQLKind, error) {
 		}
 	}
 
-	if !seen {
+	if stmtCount == 0 {
 		return "", SQLKindOther, fmt.Errorf("empty SQL")
 	}
 
@@ -348,6 +348,11 @@ func StripDDL(sql string) (string, SQLKind, error) {
 	case SQLKindSelect, SQLKindOther:
 		return sql, lastKind, nil
 	case SQLKindCreateTableAS:
+		// Only strip if this is a single statement; for multi-statement scripts
+		// preserve the original SQL to keep preceding statements (DECLARE, etc.)
+		if stmtCount > 1 {
+			return sql, lastKind, nil
+		}
 		createStmt, ok := lastStmt.(*ast.CreateTableStatementNode)
 		if !ok {
 			return "", lastKind, fmt.Errorf("expected CreateTableStatementNode")

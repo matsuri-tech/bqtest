@@ -256,3 +256,29 @@ func TestClassifySQL_MultiStatement(t *testing.T) {
 		t.Errorf("expected SELECT for multi-statement script, got %v", got)
 	}
 }
+
+func TestClassifySQL_DeclareOnly(t *testing.T) {
+	sql := "DECLARE x INT64 DEFAULT 1;"
+	got, err := ClassifySQL(sql)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got != SQLKindOther {
+		t.Errorf("expected OTHER for declare-only script, got %v", got)
+	}
+}
+
+func TestStripDDL_MultiStatementCreateTableAS(t *testing.T) {
+	sql := "DECLARE x INT64 DEFAULT 1;\nCREATE OR REPLACE TABLE `p.d.output` AS SELECT user_id FROM `p.d.orders`;"
+	got, kind, err := StripDDL(sql)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if kind != SQLKindCreateTableAS {
+		t.Errorf("expected CREATE TABLE AS, got %v", kind)
+	}
+	// Multi-statement: should preserve original SQL (not strip)
+	if got != sql {
+		t.Errorf("expected original SQL preserved for multi-statement, got %q", got)
+	}
+}
