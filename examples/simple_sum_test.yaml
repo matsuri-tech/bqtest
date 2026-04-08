@@ -1,0 +1,13 @@
+test_name: simple_sum
+description: Verify SUM aggregation groups correctly by user_id
+sql_file: simple_sum.sql
+fixtures:
+  - table: myproj.dataset.orders
+    rows:
+      - {order_id: 1, user_id: 10, amount: 100}
+      - {order_id: 2, user_id: 10, amount: 200}
+      - {order_id: 3, user_id: 20, amount: 50}
+expected:
+  rows:
+    - {user_id: 10, total_amount: 300}
+    - {user_id: 20, total_amount: 50}

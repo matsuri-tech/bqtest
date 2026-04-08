@@ -2,6 +2,7 @@ package script
 
 import (
 	"fmt"
+	"sort"
 	"strings"
 
 	"github.com/matsuri-tech/bqtest/testcase"
@@ -51,10 +52,7 @@ func generateFixtureSQL(tempName string, f testcase.Fixture) string {
 	// Build UNION ALL of SELECT statements for each row
 	var selects []string
 	for _, row := range f.Rows {
-		var cols []string
-		for k, v := range row {
-			cols = append(cols, fmt.Sprintf("%s AS %s", formatValue(v), k))
-		}
+		cols := sortedColumns(row)
 		selects = append(selects, fmt.Sprintf("SELECT %s", strings.Join(cols, ", ")))
 	}
 
@@ -72,10 +70,7 @@ func generateExpectedSQL(expected testcase.Expected) string {
 
 	var selects []string
 	for _, row := range expected.Rows {
-		var cols []string
-		for k, v := range row {
-			cols = append(cols, fmt.Sprintf("%s AS %s", formatValue(v), k))
-		}
+		cols := sortedColumns(row)
 		selects = append(selects, fmt.Sprintf("SELECT %s", strings.Join(cols, ", ")))
 	}
 
@@ -101,6 +96,19 @@ SELECT
   (SELECT COUNT(*) FROM __bqtest_missing) AS missing_count,
   (SELECT COUNT(*) FROM __bqtest_actual) AS actual_count,
   (SELECT COUNT(*) FROM __bqtest_expected) AS expected_count;`
+}
+
+func sortedColumns(row map[string]any) []string {
+	keys := make([]string, 0, len(row))
+	for k := range row {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	cols := make([]string, len(keys))
+	for i, k := range keys {
+		cols[i] = fmt.Sprintf("%s AS %s", formatValue(row[k]), k)
+	}
+	return cols
 }
 
 func formatValue(v any) string {
