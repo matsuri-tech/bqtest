@@ -131,7 +131,7 @@ func executeRun(args []string) error {
 		location = detectDefaultLocation()
 	}
 	if location == "" {
-		fmt.Fprintln(os.Stderr, "Error: BigQuery location is required.\n\nSpecify it with one of:\n  --location <location>\n  BQTEST_LOCATION=<location>\n  Add '--location=<location>' to ~/.bigqueryrc")
+		fmt.Fprintln(os.Stderr, "Error: BigQuery location is required.\n\nSpecify it with one of:\n  --location <location>\n  BQTEST_LOCATION=<location>\n  Add 'location = <location>' to ~/.bigqueryrc")
 		os.Exit(exitFail)
 	}
 
