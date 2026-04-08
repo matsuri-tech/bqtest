@@ -172,6 +172,54 @@ func buildTableRef(pathExpr *ast.PathExpressionNode) *TableRef {
 	}
 }
 
+// ExtractAllTableRefs parses SQL and returns all table references with offsets (not deduped).
+func ExtractAllTableRefs(sql string) ([]TableRef, error) {
+	opts := newParserOptions()
+	var allRefs []TableRef
+
+	loc := zetasql.NewParseResumeLocation(sql)
+	for {
+		stmt, isEnd, err := zetasql.ParseNextScriptStatement(loc, opts)
+		if err != nil {
+			return nil, fmt.Errorf("parse error: %w", err)
+		}
+		if stmt != nil {
+			cteNames := collectCTENames(stmt)
+			destRefs := collectDestinationRefs(stmt)
+			destPaths := make(map[string]bool)
+			for _, ref := range destRefs {
+				destPaths[ref.Path] = true
+			}
+			allRefs = append(allRefs, destRefs...)
+
+			ast.Walk(stmt, func(n ast.Node) error {
+				tpe, ok := n.(*ast.TablePathExpressionNode)
+				if !ok {
+					return nil
+				}
+				pathExpr := tpe.PathExpr()
+				if pathExpr == nil {
+					return nil
+				}
+				ref := buildTableRef(pathExpr)
+				if ref == nil {
+					return nil
+				}
+				if cteNames[ref.Path] || destPaths[ref.Path] {
+					return nil
+				}
+				ref.IsSource = true
+				allRefs = append(allRefs, *ref)
+				return nil
+			})
+		}
+		if isEnd {
+			break
+		}
+	}
+	return allRefs, nil
+}
+
 func dedup(refs []TableRef) []TableRef {
 	seen := make(map[string]bool)
 	var out []TableRef
