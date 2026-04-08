@@ -26,6 +26,7 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
+          cache: true
 
       - name: Install clang (Linux)
         if: runner.os == 'Linux'
@@ -39,6 +40,10 @@ jobs:
           CC: clang
           CXX: clang++
         run: go build -o bqtest-${{ matrix.goos }}-${{ matrix.goarch }} ./cmd/bqtest/
+
+      - name: Ad-hoc codesign (macOS)
+        if: runner.os == 'macOS'
+        run: codesign --force --sign - bqtest-${{ matrix.goos }}-${{ matrix.goarch }}
 
       - uses: actions/upload-artifact@v4
         with:
