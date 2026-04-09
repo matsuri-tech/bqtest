@@ -301,6 +301,12 @@ func TestFormatValue_WithColumnType(t *testing.T) {
 		{nil, "DATE", "CAST(NULL AS DATE)"},
 		{nil, "INT64", "CAST(NULL AS INT64)"},
 
+		// BYTES uses B'value' prefix
+		{"abc", "BYTES", "B'abc'"},
+
+		// INTERVAL falls back to CAST
+		{"1", "INTERVAL", "CAST(1 AS INTERVAL)"},
+
 		// Single quote escaping
 		{"it's a test", "STRING", "CAST('it\\'s a test' AS STRING)"},
 		{"2025-01-01'test", "DATE", "DATE '2025-01-01\\'test'"},

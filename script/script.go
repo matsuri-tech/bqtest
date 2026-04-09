@@ -118,9 +118,7 @@ var literalTypes = map[string]bool{
 	"TIME":       true,
 	"NUMERIC":    true,
 	"BIGNUMERIC": true,
-	"INTERVAL":   true,
 	"JSON":       true,
-	"BYTES":      true,
 }
 
 // formatValue converts a Go value to a BigQuery SQL literal.
@@ -166,6 +164,12 @@ func formatWithColumnType(v any, colType string) string {
 	if literalTypes[colType] {
 		escaped := strings.ReplaceAll(raw, "'", "\\'")
 		return fmt.Sprintf("%s '%s'", colType, escaped)
+	}
+
+	// BYTES uses B'value' prefix notation
+	if colType == "BYTES" {
+		escaped := strings.ReplaceAll(raw, "'", "\\'")
+		return fmt.Sprintf("B'%s'", escaped)
 	}
 
 	// For other types (INT64, FLOAT64, BOOL, STRING, etc.), use CAST
