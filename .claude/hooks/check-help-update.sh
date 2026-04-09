@@ -6,19 +6,21 @@ WATCHED_FILES="testcase/testcase.go script/script.go"
 HELP_FILE="cmd/bqtest/main.go"
 
 # Check files in the last commit
-committed=$(git diff --name-only HEAD~1 HEAD 2>/dev/null)
+if ! committed=$(git show --name-only --pretty="" HEAD 2>/dev/null); then
+  exit 0
+fi
 
 watched_changed=false
 help_changed=false
 
 for f in $WATCHED_FILES; do
-  if echo "$committed" | grep -q "^${f}$"; then
+  if echo "$committed" | grep -Fxq -- "$f"; then
     watched_changed=true
     break
   fi
 done
 
-if echo "$committed" | grep -q "^${HELP_FILE}$"; then
+if echo "$committed" | grep -Fxq -- "$HELP_FILE"; then
   help_changed=true
 fi
 
