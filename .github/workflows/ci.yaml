@@ -24,7 +24,7 @@ jobs:
           path: |
             ~/go/pkg/mod
             ~/.cache/go-build
-          key: go-build-linux-amd64-${{ hashFiles('go.sum') }}
+          key: go-build-linux-amd64-${{ hashFiles('**/go.mod', '**/go.sum') }}
           restore-keys: go-build-linux-amd64-
       - name: Install clang
         run: |
@@ -48,7 +48,7 @@ jobs:
           path: |
             ~/go/pkg/mod
             ~/Library/Caches/go-build
-          key: go-build-darwin-arm64-${{ hashFiles('go.sum') }}
+          key: go-build-darwin-arm64-${{ hashFiles('**/go.mod', '**/go.sum') }}
           restore-keys: go-build-darwin-arm64-
       - name: Build
         env:
