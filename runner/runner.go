@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"strings"
 
 	"cloud.google.com/go/bigquery"
 
@@ -146,6 +147,23 @@ func convertExpectedRows(rows []map[string]any) []diff.Row {
 	return result
 }
 
+// typeMismatchHint checks if a BigQuery error looks like a type mismatch caused by
+// missing columns definition (e.g. STRING passed where DATE/NUMERIC was expected).
+var typedLiteralTypes = []string{"DATE", "TIMESTAMP", "DATETIME", "TIME", "NUMERIC", "BIGNUMERIC"}
+
+func typeMismatchHint(err error) string {
+	msg := strings.ToUpper(err.Error())
+	if !strings.Contains(msg, "STRING") {
+		return ""
+	}
+	for _, t := range typedLiteralTypes {
+		if strings.Contains(msg, t) {
+			return "A STRING value was used where a typed value was expected. Add a 'columns' definition to your fixture to specify column types (e.g. columns: {col: DATE})."
+		}
+	}
+	return ""
+}
+
 // normalizeValue converts YAML values to types comparable with BigQuery results.
 // YAML parses numbers as int (small) or float64, BigQuery returns int64.
 func normalizeValue(v any) any {
@@ -167,6 +185,9 @@ func Report(out io.Writer, r *RunResult) {
 	if r.Err != nil {
 		fmt.Fprintf(out, "FAIL  %s\n", r.TestName)
 		fmt.Fprintf(out, "  Error: %v\n", r.Err)
+		if hint := typeMismatchHint(r.Err); hint != "" {
+			fmt.Fprintf(out, "  Hint: %s\n", hint)
+		}
 		return
 	}
 
