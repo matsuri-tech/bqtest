@@ -86,6 +86,15 @@ YAML Test Format:
   # Or inline SQL instead of sql_file:
   # sql: "SELECT user_id, SUM(amount) AS total_amount FROM ` + "`myproj.dataset.orders`" + ` GROUP BY user_id"
 
+  # For typed columns (DATE, NUMERIC, etc.), use columns to specify types:
+  # fixtures:
+  #   - table: myproj.dataset.payments
+  #     columns:
+  #       paid_date: DATE
+  #       amount: NUMERIC
+  #     rows:
+  #       - {id: 1, paid_date: "2025-05-15", amount: 48000}
+
   # For empty tables with typed schema:
   # fixtures:
   #   - table: myproj.dataset.empty_table
