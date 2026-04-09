@@ -47,7 +47,35 @@ func generateFixtureSQL(tempName string, f testcase.Fixture) string {
 	if f.SQL != "" {
 		return fmt.Sprintf("CREATE TEMP TABLE `%s` AS\n%s;", tempName, f.SQL)
 	}
+	if len(f.Columns) > 0 && len(f.Rows) == 0 {
+		return fmt.Sprintf("CREATE TEMP TABLE `%s` AS\n%s;", tempName, generateEmptyTableSQL(f.Columns))
+	}
 	return fmt.Sprintf("CREATE TEMP TABLE `%s` AS\nSELECT * FROM UNNEST([%s]);", tempName, generateStructArray(f.Rows))
+}
+
+// generateEmptyTableSQL builds a SELECT with CAST(NULL AS type) for each column, with LIMIT 0.
+func generateEmptyTableSQL(columns map[string]string) string {
+	keys := sortedColumnKeys(columns)
+	var fields []string
+	for _, k := range keys {
+		colType := columns[k]
+		if colType == "" || strings.ContainsAny(colType, ";'\"\\") {
+			// Defensive: skip columns with empty or suspicious type strings.
+			// Validation in testcase should catch this earlier.
+			continue
+		}
+		fields = append(fields, fmt.Sprintf("CAST(NULL AS %s) AS `%s`", strings.ToUpper(colType), k))
+	}
+	return fmt.Sprintf("SELECT %s LIMIT 0", strings.Join(fields, ", "))
+}
+
+func sortedColumnKeys(m map[string]string) []string {
+	keys := make([]string, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	return keys
 }
 
 // generateStructArray builds a comma-separated list of STRUCT literals from rows.

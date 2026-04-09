@@ -112,6 +112,14 @@ fixtures:
   - table: t
 expected:
   rows: [{a: 1}]`},
+		{"column with empty type", `test_name: test
+sql: "SELECT 1"
+fixtures:
+  - table: t
+    columns:
+      id: ""
+expected:
+  rows: [{a: 1}]`},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -299,6 +307,69 @@ expected:
 	}
 	if m["proj.dataset.users"] != "users" {
 		t.Errorf("expected users, got %s", m["proj.dataset.users"])
+	}
+}
+
+func TestParse_ColumnsWithEmptyRows(t *testing.T) {
+	yaml := `
+test_name: empty_table_test
+sql: "SELECT 1"
+fixtures:
+  - table: myproj.dataset.empty_tbl
+    columns:
+      id: INT64
+      name: STRING
+    rows: []
+expected:
+  rows:
+    - {a: 1}
+`
+	tc, err := Parse([]byte(yaml))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(tc.Fixtures[0].Columns) != 2 {
+		t.Errorf("expected 2 columns, got %d", len(tc.Fixtures[0].Columns))
+	}
+	if len(tc.Fixtures[0].Rows) != 0 {
+		t.Errorf("expected 0 rows, got %d", len(tc.Fixtures[0].Rows))
+	}
+}
+
+func TestParse_ColumnsWithoutRowsField(t *testing.T) {
+	yaml := `
+test_name: columns_only_test
+sql: "SELECT 1"
+fixtures:
+  - table: myproj.dataset.tbl
+    columns:
+      amount: FLOAT64
+expected:
+  rows:
+    - {a: 1}
+`
+	tc, err := Parse([]byte(yaml))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(tc.Fixtures[0].Columns) != 1 {
+		t.Errorf("expected 1 column, got %d", len(tc.Fixtures[0].Columns))
+	}
+}
+
+func TestParse_NoRowsNoColumnsNoSQL(t *testing.T) {
+	yaml := `
+test_name: invalid_test
+sql: "SELECT 1"
+fixtures:
+  - table: myproj.dataset.tbl
+expected:
+  rows:
+    - {a: 1}
+`
+	_, err := Parse([]byte(yaml))
+	if err == nil {
+		t.Errorf("expected validation error for fixture with no rows, columns, or sql")
 	}
 }
 

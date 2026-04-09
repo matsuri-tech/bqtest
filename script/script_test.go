@@ -169,6 +169,89 @@ func TestGenerate_ReservedWordTableName(t *testing.T) {
 	}
 }
 
+func TestGenerate_EmptyRowsWithColumns(t *testing.T) {
+	tc := &testcase.TestCase{
+		TestName: "empty_table",
+		SQL:      "SELECT * FROM empty_tbl",
+		Fixtures: []testcase.Fixture{
+			{
+				Table:    "myproj.dataset.empty_tbl",
+				TempName: "empty_tbl",
+				Columns: map[string]string{
+					"id":   "INT64",
+					"name": "STRING",
+				},
+				Rows: []map[string]any{},
+			},
+		},
+		Expected: testcase.Expected{
+			Rows: []map[string]any{},
+		},
+	}
+
+	result := Generate(tc, "SELECT * FROM empty_tbl")
+
+	expected := "CREATE TEMP TABLE `empty_tbl` AS\nSELECT CAST(NULL AS INT64) AS `id`, CAST(NULL AS STRING) AS `name` LIMIT 0;"
+	if !strings.Contains(result, expected) {
+		t.Errorf("expected empty table SQL:\n%s\n\ngot:\n%s", expected, result)
+	}
+}
+
+func TestGenerate_ColumnsOnlyNoRows(t *testing.T) {
+	// Fixture with columns and nil Rows (not explicitly set)
+	tc := &testcase.TestCase{
+		TestName: "columns_only",
+		SQL:      "SELECT * FROM tbl",
+		Fixtures: []testcase.Fixture{
+			{
+				Table:    "myproj.dataset.tbl",
+				TempName: "tbl",
+				Columns: map[string]string{
+					"amount": "FLOAT64",
+				},
+			},
+		},
+		Expected: testcase.Expected{
+			Rows: []map[string]any{},
+		},
+	}
+
+	result := Generate(tc, "SELECT * FROM tbl")
+
+	expected := "CAST(NULL AS FLOAT64) AS `amount` LIMIT 0"
+	if !strings.Contains(result, expected) {
+		t.Errorf("expected CAST expression, got:\n%s", result)
+	}
+}
+
+func TestGenerate_ColumnsLowercase(t *testing.T) {
+	tc := &testcase.TestCase{
+		TestName: "lowercase_columns",
+		SQL:      "SELECT * FROM tbl",
+		Fixtures: []testcase.Fixture{
+			{
+				Table:    "myproj.dataset.tbl",
+				TempName: "tbl",
+				Columns: map[string]string{
+					"id":   "int64",
+					"name": "string",
+				},
+				Rows: []map[string]any{},
+			},
+		},
+		Expected: testcase.Expected{
+			Rows: []map[string]any{},
+		},
+	}
+
+	result := Generate(tc, "SELECT * FROM tbl")
+
+	expected := "CAST(NULL AS INT64) AS `id`, CAST(NULL AS STRING) AS `name` LIMIT 0"
+	if !strings.Contains(result, expected) {
+		t.Errorf("expected uppercase types from lowercase input:\n%s\n\ngot:\n%s", expected, result)
+	}
+}
+
 func TestFormatValue(t *testing.T) {
 	tests := []struct {
 		input    any
