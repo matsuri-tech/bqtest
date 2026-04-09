@@ -109,6 +109,11 @@ YAML Test Format:
   # fixtures:
   #   - table: myproj.dataset.events
   #     sql: "SELECT 1 AS id, STRUCT('a' AS key, 1 AS val) AS metadata"
+
+  # passthrough: tables to use as-is from BigQuery (no fixture replacement):
+  # passthrough:
+  #   - myproj.dataset.master_table
+  #   - myproj.dataset.config_table
 `)
 
 	runCmd := &cobra.Command{
