@@ -64,7 +64,7 @@ func generateEmptyTableSQL(columns map[string]string) string {
 			// Validation in testcase should catch this earlier.
 			continue
 		}
-		fields = append(fields, fmt.Sprintf("CAST(NULL AS %s) AS `%s`", colType, k))
+		fields = append(fields, fmt.Sprintf("CAST(NULL AS %s) AS `%s`", strings.ToUpper(colType), k))
 	}
 	return fmt.Sprintf("SELECT %s LIMIT 0", strings.Join(fields, ", "))
 }

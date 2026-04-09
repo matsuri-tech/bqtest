@@ -224,6 +224,34 @@ func TestGenerate_ColumnsOnlyNoRows(t *testing.T) {
 	}
 }
 
+func TestGenerate_ColumnsLowercase(t *testing.T) {
+	tc := &testcase.TestCase{
+		TestName: "lowercase_columns",
+		SQL:      "SELECT * FROM tbl",
+		Fixtures: []testcase.Fixture{
+			{
+				Table:    "myproj.dataset.tbl",
+				TempName: "tbl",
+				Columns: map[string]string{
+					"id":   "int64",
+					"name": "string",
+				},
+				Rows: []map[string]any{},
+			},
+		},
+		Expected: testcase.Expected{
+			Rows: []map[string]any{},
+		},
+	}
+
+	result := Generate(tc, "SELECT * FROM tbl")
+
+	expected := "CAST(NULL AS INT64) AS `id`, CAST(NULL AS STRING) AS `name` LIMIT 0"
+	if !strings.Contains(result, expected) {
+		t.Errorf("expected uppercase types from lowercase input:\n%s\n\ngot:\n%s", expected, result)
+	}
+}
+
 func TestFormatValue(t *testing.T) {
 	tests := []struct {
 		input    any
