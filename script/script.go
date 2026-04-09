@@ -58,7 +58,13 @@ func generateEmptyTableSQL(columns map[string]string) string {
 	keys := sortedColumnKeys(columns)
 	var fields []string
 	for _, k := range keys {
-		fields = append(fields, fmt.Sprintf("CAST(NULL AS %s) AS %s", columns[k], k))
+		colType := columns[k]
+		if colType == "" || strings.ContainsAny(colType, ";'\"\\") {
+			// Defensive: skip columns with empty or suspicious type strings.
+			// Validation in testcase should catch this earlier.
+			continue
+		}
+		fields = append(fields, fmt.Sprintf("CAST(NULL AS %s) AS `%s`", colType, k))
 	}
 	return fmt.Sprintf("SELECT %s LIMIT 0", strings.Join(fields, ", "))
 }

@@ -112,6 +112,14 @@ fixtures:
   - table: t
 expected:
   rows: [{a: 1}]`},
+		{"column with empty type", `test_name: test
+sql: "SELECT 1"
+fixtures:
+  - table: t
+    columns:
+      id: ""
+expected:
+  rows: [{a: 1}]`},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

@@ -191,7 +191,7 @@ func TestGenerate_EmptyRowsWithColumns(t *testing.T) {
 
 	result := Generate(tc, "SELECT * FROM empty_tbl")
 
-	expected := "CREATE TEMP TABLE `empty_tbl` AS\nSELECT CAST(NULL AS INT64) AS id, CAST(NULL AS STRING) AS name LIMIT 0;"
+	expected := "CREATE TEMP TABLE `empty_tbl` AS\nSELECT CAST(NULL AS INT64) AS `id`, CAST(NULL AS STRING) AS `name` LIMIT 0;"
 	if !strings.Contains(result, expected) {
 		t.Errorf("expected empty table SQL:\n%s\n\ngot:\n%s", expected, result)
 	}
@@ -218,7 +218,7 @@ func TestGenerate_ColumnsOnlyNoRows(t *testing.T) {
 
 	result := Generate(tc, "SELECT * FROM tbl")
 
-	expected := "CAST(NULL AS FLOAT64) AS amount LIMIT 0"
+	expected := "CAST(NULL AS FLOAT64) AS `amount` LIMIT 0"
 	if !strings.Contains(result, expected) {
 		t.Errorf("expected CAST expression, got:\n%s", result)
 	}
