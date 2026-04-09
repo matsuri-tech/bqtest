@@ -1,0 +1,16 @@
+test_name: typed_literal
+description: Verify DATE and NUMERIC typed literals work correctly via columns definition
+sql_file: typed_literal_test.sql
+fixtures:
+  - table: myproj.dataset.cleared_amounts
+    columns:
+      cleared_date: DATE
+      total: NUMERIC
+    rows:
+      - {reservation_id: "abc123", cleared_date: "2025-05-15", total: 48000}
+      - {reservation_id: "def456", cleared_date: "2025-04-20", total: 12000}
+      - {reservation_id: "ghi789", cleared_date: "2025-05-01", total: 5000}
+expected:
+  rows:
+    - {reservation_id: "abc123", cleared_date: "2025-05-15", cleared_month: "2025-05-01", total: "48000/1"}
+    - {reservation_id: "ghi789", cleared_date: "2025-05-01", cleared_month: "2025-05-01", total: "5000/1"}

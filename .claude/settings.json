@@ -6,7 +6,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "if echo \"$TOOL_INPUT\" | grep -q 'git commit'; then bash .claude/hooks/check-help-update.sh; fi"
+            "command": "INPUT=$(cat); if echo \"$INPUT\" | grep -q 'git commit'; then bash .claude/hooks/check-help-update.sh; fi"
           }
         ]
       }

@@ -86,6 +86,17 @@ YAML Test Format:
   # Or inline SQL instead of sql_file:
   # sql: "SELECT user_id, SUM(amount) AS total_amount FROM ` + "`myproj.dataset.orders`" + ` GROUP BY user_id"
 
+  # columns: specify types for columns that need typed literals (DATE, TIMESTAMP, NUMERIC, etc.).
+  # Without columns, all values are treated as STRING or inferred from Go types.
+  # Only columns requiring special typed literals need to be listed:
+  # fixtures:
+  #   - table: myproj.dataset.payments
+  #     columns:
+  #       paid_date: DATE
+  #       amount: NUMERIC
+  #     rows:
+  #       - {id: 1, paid_date: "2025-05-15", amount: 48000}
+
   # For empty tables with typed schema:
   # fixtures:
   #   - table: myproj.dataset.empty_table
@@ -98,6 +109,11 @@ YAML Test Format:
   # fixtures:
   #   - table: myproj.dataset.events
   #     sql: "SELECT 1 AS id, STRUCT('a' AS key, 1 AS val) AS metadata"
+
+  # passthrough: tables to use as-is from BigQuery (no fixture replacement):
+  # passthrough:
+  #   - myproj.dataset.master_table
+  #   - myproj.dataset.config_table
 `)
 
 	runCmd := &cobra.Command{

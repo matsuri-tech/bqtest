@@ -25,5 +25,7 @@ if echo "$committed" | grep -Fxq -- "$HELP_FILE"; then
 fi
 
 if [ "$watched_changed" = true ] && [ "$help_changed" = false ]; then
-  echo "⚠ YAMLフォーマットや生成SQLに影響する変更を検知しました。必要に応じて cmd/bqtest/main.go のヘルプテキストを更新し、追加コミットしてください。"
+  cat <<'HOOKJSON'
+{"hookSpecificOutput":{"hookEventName":"PostToolUse","additionalContext":"⚠ YAMLフォーマットや生成SQLに影響する変更を検知しました。必要に応じて cmd/bqtest/main.go のヘルプテキストを更新し、追加コミットしてください。"}}
+HOOKJSON
 fi
