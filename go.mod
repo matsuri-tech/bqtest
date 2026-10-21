@@ -1,6 +1,6 @@
 module github.com/matsuri-tech/bqtest
 
-go 1.25.0
+go 1.27.0
 
 require (
 	cloud.google.com/go/bigquery v1.75.0
